@@ -134,6 +134,7 @@ Partial Class ConnectionManager
             Dim repo As ISettingsRepository = New SqlSettingsRepository(cf)
             repo.SetValue("app.db.connection", cs)
             AppServices.Initialize(cs)
+            'UpdateDbStatus(GetDbStatusText(cs))
             SetStatus("Connection string saved to dbo.settings (key = 'app.db.connection').", True)
         Catch ex As Exception
             SetStatus("Save failed: " & ex.Message, False)

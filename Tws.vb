@@ -63,6 +63,7 @@ Public Class Tws
     End Sub
 
     Public Sub currentTime(time As Long) Implements EWrapper.currentTime
+        TWSConn_currentTime(time)
     End Sub
 
     Public Sub deltaNeutralValidation(reqId As Integer, deltaNeutralContract As DeltaNeutralContract) Implements EWrapper.deltaNeutralValidation

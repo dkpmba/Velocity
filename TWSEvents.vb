@@ -10,6 +10,13 @@ Public Module TWSEvents
     Public Event ConnClosed()
     Public Event ApiError(code As Integer, message As String)
 
+    ' === Add near the top with your other events ===
+    Public Event ServerTime(epoch As Long)
+
+    ' === In your forwarders (called by Tws.vb) add/ensure this exists ===
+    Public Sub TWSConn_currentTime(time As Long)
+        RaiseEvent ServerTime(time)
+    End Sub
 
 
     Public Sub TWSConn_historicalData(reqId As Integer, bar As Bar)

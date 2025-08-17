@@ -1,4 +1,4 @@
-Public Partial Class MainForm
+ÔªøPublic Partial Class MainForm
     Inherits Form
 
     Private _twseventsHooked As Boolean = False
@@ -23,21 +23,57 @@ Public Partial Class MainForm
 
     Private Sub HookTwseventsOnce()
         If _twseventsHooked Then Return
-        AddHandler TWSEvents.ApiError, Sub(code, msg) AppendAlert($"TWS {code}: {msg}", "TWS")
-        AddHandler TWSEvents.ConnClosed, Sub() AppendAlert("TWS connection closed.", "WARN")
-        AddHandler TWSEvents.NextValidId, Sub(id) AppendAlert("Connected. nextValidId=" & id, "INFO")
         _twseventsHooked = True
+
+        ' ensure the status UI exists
+        EnsureTwsStatusUi()
+
+        ' existing alert hooks (keep yours)
+        AddHandler TWSEvents.ApiError, Sub(code, msg) AppendAlert($"TWS {code}: {msg}", "TWS")
+
+        AddHandler TWSEvents.ConnClosed, Sub()
+                                             BeginInvoke(Sub()
+                                                             UpdateTwsStatus(False, "TWS: Disconnected")
+                                                             AppendAlert("TWS connection closed.", "WARN")
+                                                         End Sub)
+                                         End Sub
+
+        AddHandler TWSEvents.NextValidId, Sub(id)
+                                              BeginInvoke(Sub()
+                                                              UpdateTwsStatus(True, $"TWS: Connected (NextValidId={id})")
+                                                              AppendAlert("Connected. nextValidId=" & id, "INFO")
+                                                              EnsureLatencyTimer()   ' if you use one
+                                                              PingServerTime()       ' kick off first RTT
+                                                          End Sub)
+                                          End Sub
+
+        ' NEW: server time -> status strip
+        AddHandler TWSEvents.ServerTime, Sub(epoch)
+                                             Dim ms As Integer = CInt(_latencySw.ElapsedMilliseconds)
+                                             Dim dt = DateTimeOffset.FromUnixTimeSeconds(epoch).ToLocalTime().DateTime
+                                             BeginInvoke(Sub()
+                                                             UpdateLatency(ms)
+                                                             'EnsureStatusStripRefs()
+                                                             If lblConn IsNot Nothing Then
+                                                                 lblConn.ToolTipText = "TWS Server Time: " & dt.ToString("yyyy-MM-dd HH:mm:ss")
+                                                             End If
+                                                         End Sub)
+                                         End Sub
+
+
     End Sub
 
-    ' Hook this to your ìData ConnectionÖî menu item or button
+
+    ' Hook this to your ‚ÄúData Connection‚Ä¶‚Äù menu item or button
     Private Sub mnuDataConnection_Click(sender As Object, e As EventArgs) Handles mnuDataConnection.Click
         Using dlg As New ConnectionManager()
             Dim result = dlg.ShowDialog(Me)
-            ' We donít force DialogResult=OK in your current flow; so just refresh after the dialog if a CS is present
+            ' We don‚Äôt force DialogResult=OK in your current flow; so just refresh after the dialog if a CS is present
             Dim cs = AppServices.ConnectionString  ' or your GetConnString()
             If Not String.IsNullOrWhiteSpace(cs) Then
                 AppServices.Initialize(cs)
                 RefreshAllData()
+                UpdateDbStatus(GetDbStatusText(cs))
                 AppendAlert("DB connected and UI refreshed.", "INFO")
             End If
 
@@ -49,4 +85,14 @@ Public Partial Class MainForm
             End If
         End Using
     End Sub
+
+    Private Function GetDbStatusText(cs As String) As String
+        Try
+            Dim b = New Microsoft.Data.SqlClient.SqlConnectionStringBuilder(cs)
+            Return $"DB: {If(b.InitialCatalog, "(none)")}@{b.DataSource}"
+        Catch
+            Return "DB: Connected"
+        End Try
+    End Function
+
 End Class
