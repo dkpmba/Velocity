@@ -10,6 +10,7 @@ Public Partial Class ConnectionManager
     Private _state As ConnState = ConnState.Disconnected
     Private _profiles As New List(Of Profile)()
     Private _defaultProfileName As String = ""
+    Private _twseventsHooked As Boolean
 
     Public Sub New()
         InitializeComponent()
@@ -38,6 +39,12 @@ Public Partial Class ConnectionManager
         ' Make the app auto-load the saved connection and launch MainForm if possible
         AutoStartIfPossible()
 
+        If Not _twseventsHooked Then
+            AddHandler TWSEvents.NextValidId, AddressOf OnNextValidId
+            AddHandler TWSEvents.ConnClosed, AddressOf OnTwsClosed
+            AddHandler TWSEvents.ApiError, AddressOf OnTwsError
+            _twseventsHooked = True
+        End If
     End Sub
     Private Sub AutoStartIfPossible()
         ' 1) Get a bootstrap connection string
@@ -126,40 +133,33 @@ Public Partial Class ConnectionManager
 
     '── ToolStrip actions ───────────────────────────────────────────────────────
 
+    ' CONNECT via TwsHost
     Private Sub btnConnect_Click(sender As Object, e As EventArgs) Handles btnConnect.Click
-        Try
-            Dim host = txtHost.Text.Trim()
-            Dim port = CInt(nudPort.Value)
-            Dim clientId = CInt(nudClientId.Value)
+        Dim host = txtHost.Text.Trim()
+        Dim port = CInt(nudPort.Value)
+        Dim clientId = CInt(nudClientId.Value)
 
-            UpdateConnUi(ConnState.Connecting)
-            TwsHost.Connect(host, port, clientId, Sub(m) AppendLog("INFO", m))
-            AppendLog("INFO", "Connect requested.")
+        If TwsHost.IsConnected() Then
+            AppendLog("INFO", "Already connected.")
+            Return
+        End If
 
-        Catch ex As Exception
-            UpdateConnUi(ConnState.Disconnected)
-            AppendLog("ERROR", "TWS connect failed: " & ex.Message)
-            MessageBox.Show("TWS connect failed: " & ex.Message, "TWS", MessageBoxButtons.OK, MessageBoxIcon.Error)
-        End Try
+        UpdateConnUi(ConnState.Connecting)
+        AppendLog("INFO", $"Connecting to {host}:{port} (clientId={clientId}) …")
+
+        ' one-time subscriptions are safe here too, but I show them in Load below
+        TwsHost.Connect(host, port, clientId, Sub(m) AppendLog("INFO", m))
     End Sub
 
-
-
-    ' ConnectionManager.vb
+    ' DISCONNECT via TwsHost
     Private Sub btnDisconnect_Click(sender As Object, e As EventArgs) Handles btnDisconnect.Click
         Try
             UpdateConnUi(ConnState.Disconnected)
-            AppendLog("INFO", "Disconnect requested...")
+            AppendLog("INFO", "Disconnect requested…")
 
-            ' If you subscribed earlier, it's safe to unhook now (optional)
-            RemoveHandler TWSEvents.NextValidId, AddressOf OnNextValidId
-            RemoveHandler TWSEvents.ConnClosed, AddressOf OnTwsClosed
-            RemoveHandler TWSEvents.ApiError, AddressOf OnTwsError
-
-            ' Tell the host to tear down the session (closes reader + socket)
             TwsHost.Disconnect()
 
-            ' Small wait so UI reflects the state reliably
+            ' wait up to ~2s for state flip (optional)
             Dim t0 = Environment.TickCount
             Do While TwsHost.IsConnected() AndAlso Environment.TickCount - t0 < 2000
                 Application.DoEvents()
@@ -173,6 +173,7 @@ Public Partial Class ConnectionManager
             AppendLog("ERROR", "Disconnect error: " & ex.Message)
         End Try
     End Sub
+
 
     ' Fired once connection is fully ready
     Private Sub OnNextValidId(nextId As Integer)

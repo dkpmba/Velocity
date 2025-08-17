@@ -23,7 +23,7 @@ Partial Class MainForm
     <System.Diagnostics.DebuggerStepThrough()> _
     Private Sub InitializeComponent()
         ToolStrip1 = New ToolStrip()
-        btnConnect = New ToolStripButton()
+        mnuDataConnection = New ToolStripButton()
         btnDisconnect = New ToolStripButton()
         ToolStripSeparator1 = New ToolStripSeparator()
         btnKillSwitch = New ToolStripButton()
@@ -111,19 +111,19 @@ Partial Class MainForm
         ' ToolStrip1
         ' 
         ToolStrip1.GripStyle = ToolStripGripStyle.Hidden
-        ToolStrip1.Items.AddRange(New ToolStripItem() {btnConnect, btnDisconnect, ToolStripSeparator1, btnKillSwitch, ToolStripSeparator2, lblEnv, cboAccount, ToolStripSeparator3, lblStatus, txtFilterSymbol})
+        ToolStrip1.Items.AddRange(New ToolStripItem() {mnuDataConnection, btnDisconnect, ToolStripSeparator1, btnKillSwitch, ToolStripSeparator2, lblEnv, cboAccount, ToolStripSeparator3, lblStatus, txtFilterSymbol})
         ToolStrip1.Location = New Point(0, 0)
         ToolStrip1.Name = "ToolStrip1"
         ToolStrip1.Size = New Size(1280, 25)
         ToolStrip1.TabIndex = 0
         ToolStrip1.Text = "ToolStrip1"
         ' 
-        ' btnConnect
+        ' mnuDataConnection
         ' 
-        btnConnect.DisplayStyle = ToolStripItemDisplayStyle.Text
-        btnConnect.Name = "btnConnect"
-        btnConnect.Size = New Size(56, 22)
-        btnConnect.Text = "Connect"
+        mnuDataConnection.DisplayStyle = ToolStripItemDisplayStyle.Text
+        mnuDataConnection.Name = "mnuDataConnection"
+        mnuDataConnection.Size = New Size(56, 22)
+        mnuDataConnection.Text = "Connect"
         ' 
         ' btnDisconnect
         ' 
@@ -697,7 +697,7 @@ Partial Class MainForm
     End Sub
 
     Friend WithEvents ToolStrip1 As ToolStrip
-    Friend WithEvents btnConnect As ToolStripButton
+    Friend WithEvents mnuDataConnection As ToolStripButton
     Friend WithEvents btnDisconnect As ToolStripButton
     Friend WithEvents ToolStripSeparator1 As ToolStripSeparator
     Friend WithEvents btnKillSwitch As ToolStripButton

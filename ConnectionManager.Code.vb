@@ -133,7 +133,7 @@ Partial Class ConnectionManager
             Dim cf As IConnectionFactory = New SqlConnectionFactory(cs)
             Dim repo As ISettingsRepository = New SqlSettingsRepository(cf)
             repo.SetValue("app.db.connection", cs)
-
+            AppServices.Initialize(cs)
             SetStatus("Connection string saved to dbo.settings (key = 'app.db.connection').", True)
         Catch ex As Exception
             SetStatus("Save failed: " & ex.Message, False)
@@ -159,6 +159,7 @@ Partial Class ConnectionManager
             Else
                 SetConnString(saved)
                 SetStatus("Loaded saved connection string from dbo.settings.", True)
+                AppServices.Initialize(saved)
             End If
         Catch ex As Exception
             SetStatus("Load failed: " & ex.Message, False)
