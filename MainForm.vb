@@ -98,184 +98,203 @@
     '========================
     '== HISTORICAL BOOT =====
     '========================
-#Region "Historical Boot (Symbols → BarManager)"
+#Region "Historical Boot (Manager-Orchestrated)"
 
-    ' Queue item for historical requests
-    Private Class HBootReq
-        Public Property ConId As Integer
-        Public Property BarSize As String     ' e.g., "1 min" or "5 mins"
-        Public Property Duration As String    ' e.g., "3 D", "10 D"
-        Public Property WhatToShow As String  ' e.g., "TRADES"
-        Public Property UseRth As Integer     ' 1 = RTH, 0 = all
-        Public Property EndTimeUtc As Date    ' optional (UTC)
-    End Class
-
-    ' State
-    Private ReadOnly _hbootQueue As New Queue(Of HBootReq)()
-    Private _hbootInProgress As Boolean = False
-    Private _hbootTotal As Integer = 0
-    Private _hbootDone As Integer = 0
-
-    ''' <summary>
-    ''' Entry point: build request queue for ALL rows in dgvSymbols, then start dequeuing.
-    ''' Call this once after DB/TWS connect and after dgvSymbols is populated.
-    ''' </summary>
+    ' -------------------------------------------------------------------------------------------------
+    ' Public entry point — call this after:
+    '   1) TWS connection is up,
+    '   2) dgvSymbols is populated,
+    '   3) cbTimeframe has a selection (e.g., "1" or "5").
+    ' This wires events (idempotent), sets the Requester delegate if needed, and starts the boot.
+    ' -------------------------------------------------------------------------------------------------
     Public Sub HBoot_Start()
-        _hbootQueue.Clear()
-        _hbootInProgress = False
-        _hbootTotal = 0
-        _hbootDone = 0
+        ' 1) Ensure HistoricalBarManager has a requester delegate to call into your TWS wrapper.
+        HBoot_SetupRequesterIfNeeded()
 
-        ' Determine timeframe from UI (assumes "1" or "5" minutes selection; adjust if your values differ)
-        Dim barSize As String
-        Dim duration As String
-        Dim tfText As String = TryCast(cbTimeframe?.SelectedItem, String)
-        If String.IsNullOrWhiteSpace(tfText) Then tfText = "1" ' default to 1 minute
+        ' 2) Subscribe to progress/completion events (no-op if already wired).
+        HBoot_WireEventsOnce()
 
-        If tfText.Trim() = "1" OrElse tfText.Contains("1") Then
-            barSize = "1 min"
-            duration = "3 D"        ' enough history to stabilize ATR/EMA for 1m
-        Else
-            barSize = "5 mins"
-            duration = "10 D"       ' deeper history for 5m
-        End If
+        ' 3) Build the request from UI and start the manager-driven boot.
+        HBoot_StartFromSymbols()
+    End Sub
 
-        ' Build queue from dgvSymbols
-        For Each row As DataGridViewRow In dgvSymbols.Rows
-            If row.IsNewRow Then Continue For
-
-            Dim cidObj As Object = Nothing
-            ' Prefer sCID (per your schema); fall back to "CID" if needed
-            If row.Cells.Contains("sCID") Then
-                cidObj = row.Cells("sCID").Value
-            ElseIf row.Cells.Contains("CID") Then
-                cidObj = row.Cells("CID").Value
-            End If
-            If cidObj Is Nothing Then Continue For
-
-            Dim conId As Integer
-            If Integer.TryParse(Convert.ToString(cidObj), conId) AndAlso conId > 0 Then
-                _hbootQueue.Enqueue(New HBootReq With {
-                .ConId = conId,
-                .BarSize = barSize,
-                .Duration = duration,
-                .WhatToShow = "TRADES",
-                .UseRth = 0,
-                .EndTimeUtc = Date.UtcNow
-            })
+    ' -------------------------------------------------------------------------------------------------
+    ' One-time event subscription for progress + completion.
+    ' Safe to call multiple times; we remove before add to avoid duplicates.
+    ' -------------------------------------------------------------------------------------------------
+    Private _hbootEventsWired As Boolean = False
+    Private Sub HBoot_WireEventsOnce()
+        If _hbootEventsWired Then Return
+        RemoveHandler HistoricalBarManager.BootProgress, AddressOf HBoot_OnProgress
+        RemoveHandler HistoricalBarManager.BootCompleted, AddressOf HBoot_OnCompleted
+        AddHandler HistoricalBarManager.BootProgress, AddressOf HBoot_OnProgress
+        AddHandler HistoricalBarManager.BootCompleted, AddressOf HBoot_OnCompleted
+        _hbootEventsWired = True
+    End Sub
+    ''' <summary>
+    ''' Return the index of a column by name (case-insensitive). Returns -1 if not found.
+    ''' </summary>
+    Private Function HBoot_GetColumnIndexByName(grid As DataGridView, columnName As String) As Integer
+        If grid Is Nothing OrElse String.IsNullOrWhiteSpace(columnName) Then Return -1
+        For Each col As DataGridViewColumn In grid.Columns
+            If String.Equals(col.Name, columnName, StringComparison.OrdinalIgnoreCase) Then
+                Return col.Index
             End If
         Next
+        Return -1
+    End Function
 
-        _hbootTotal = _hbootQueue.Count
-        If _hbootTotal = 0 Then
-            ' Nothing to do; mark ready immediately
-            HBoot_OnAllHistoryReady()
-            Exit Sub
+    ' -------------------------------------------------------------------------------------------------
+    ' Determine timeframe/duration from cbTimeframe and collect all ConIds from dgvSymbols,
+    ' then kick off HistoricalBarManager.StartBoot(...)
+    ' -------------------------------------------------------------------------------------------------
+    Private Sub HBoot_StartFromSymbols()
+        ' Resolve timeframe choice from UI
+        Dim tfText As String = TryCast(cbTimeFrame?.SelectedItem, String)
+        If String.IsNullOrWhiteSpace(tfText) Then tfText = "1" ' default to 1-minute bars
+
+        Dim barSize As String = If(tfText.Trim().Contains("1"), "1 min", "5 mins")
+        Dim duration As String = If(barSize = "1 min", "1 D", "2 D") ' lookback depth per TF
+        Dim whatToShow As String = "TRADES"
+        Dim useRth As Integer = 0 ' 0=All sessions, 1=RTH only
+        Dim endUtc As Date = Date.UtcNow
+
+        ' Collect ConIds from dgvSymbols
+        ' Replace just the "Collect ConIds from dgvSymbols" block with this:
+        ' -----------------------------------------------------------------------------
+        ' 2) Build the ConId list from dgvSymbols (prefers sCID, falls back to CID)
+        Dim conIds As New List(Of Integer)
+
+        Dim cidColIndex As Integer = HBoot_GetColumnIndexByName(dgvSymbols, "sCID")
+        If cidColIndex = -1 Then
+            cidColIndex = HBoot_GetColumnIndexByName(dgvSymbols, "CID")
         End If
 
-        _hbootInProgress = True
-        HBoot_RequestNext()
+        If cidColIndex = -1 Then
+            ' No suitable column found — bail gracefully
+            HBoot_SetStatusSafe("History load aborted: no sCID/CID column.")
+            Return
+        End If
+
+        For Each row As DataGridViewRow In dgvSymbols.Rows
+            If row Is Nothing OrElse row.IsNewRow Then Continue For
+            Dim cell As DataGridViewCell = row.Cells(cidColIndex)
+            If cell Is Nothing Then Continue For
+            Dim raw As Object = cell.Value
+            Dim cid As Integer
+            If raw IsNot Nothing AndAlso Integer.TryParse(Convert.ToString(raw), cid) AndAlso cid > 0 Then
+                conIds.Add(cid)
+            End If
+        Next
+        ' -----------------------------------------------------------------------------
+
+
+        ' Update UI status (optional)
+        HBoot_SetStatusSafe($"Loading history... 0/{conIds.Count}")
+
+        ' Kick off the manager-driven boot (serialized requests + progress events)
+        HistoricalBarManager.StartBoot(conIds, barSize, duration, whatToShow, useRth, endUtc)
+    End Sub
+
+    ' -------------------------------------------------------------------------------------------------
+    ' Progress event handler (done/total/currentConId). Marshals to UI thread when needed.
+    ' -------------------------------------------------------------------------------------------------
+    Private Sub HBoot_OnProgress(done As Integer, total As Integer, currentConId As Integer)
+        If Me.IsHandleCreated AndAlso Me.InvokeRequired Then
+            Me.BeginInvoke(Sub() HBoot_OnProgress(done, total, currentConId))
+            Return
+        End If
+        HBoot_SetStatusSafe($"Loading history... {done}/{total}")
+    End Sub
+
+    ' -------------------------------------------------------------------------------------------------
+    ' Completion event handler — fires once after the last request finishes.
+    ' Start any timers, market-data subscriptions, and enable strategies here.
+    ' Kept lean and defensive: no hard dependencies on specific methods.
+    ' -------------------------------------------------------------------------------------------------
+    Private Sub HBoot_OnCompleted()
+        If Me.IsHandleCreated AndAlso Me.InvokeRequired Then
+            Me.BeginInvoke(Sub() HBoot_OnCompleted())
+            Return
+        End If
+
+        HBoot_SetStatusSafe("History ready.")
+
+        ' === Gate everything that depends on backfill being complete ===
+        ' If you already have methods below, uncomment the calls; if not, place your starts here.
+
+        ' 1) Start market data subscriptions (underlyings + open option legs)
+        'Try
+        '    EnsureSymbolSubscriptions()      ' subscribes all underlyings in dgvSymbols (deduped)
+        '    EnsureOpenLegSubscriptions()     ' subscribes all open option CIDs in dgvMonitor
+        'Catch ex As Exception
+        '    Debug.WriteLine($"Market subs error: {ex.Message}")
+        'End Try
+
+        ' 2) Start any per-second/per-bar timers (theta decay, strategy loop, etc.)
+        'Try
+        '    StartStrategyTimers()            ' your existing timer bootstrap, if any
+        'Catch ex As Exception
+        '    Debug.WriteLine($"Timer start error: {ex.Message}")
+        'End Try
+
+        ' 3) Enable DHUL automation hooks if you gate them post-history
+        'Try
+        '    EnableDHULIfReady()
+        'Catch ex As Exception
+        '    Debug.WriteLine($"DHUL enable error: {ex.Message}")
+        'End Try
+    End Sub
+
+    ' -------------------------------------------------------------------------------------------------
+    ' Assign the Requester delegate if it isn't set.
+    ' This is a thin adapter to your TWS historical request wrapper.
+    ' IMPORTANT: Replace the TODO call with your exact wrapper method.
+    ' Expected signature for the delegate:
+    '   Function(conId As Integer, endUtc As Date, duration As String, barSize As String, whatToShow As String, useRth As Integer) As Integer
+    ' -------------------------------------------------------------------------------------------------
+    Private Sub HBoot_SetupRequesterIfNeeded()
+        If HistoricalBarManager.Requester IsNot Nothing Then Exit Sub
+        HistoricalBarManager.Requester = AddressOf HBoot_TwsRequester
     End Sub
 
     ''' <summary>
-    ''' Dequeue one request and send to TWS. We run strictly serial to avoid pacing violations.
+    ''' Thin adapter that matches HistoricalBarManager.HistoricalRequester delegate.
+    ''' Replace the TODO line with your real TWS wrapper call and return its reqId.
     ''' </summary>
-    Private Sub HBoot_RequestNext()
-        If Not _hbootInProgress Then Exit Sub
-        If _hbootQueue.Count = 0 Then
-            ' Done
-            HBoot_OnAllHistoryReady()
-            Exit Sub
-        End If
-
-        Dim req As HBootReq = _hbootQueue.Peek()
-
-        ' === TODO: Replace this call with YOUR wrapper to request historical data ===
-        ' Expected semantics (adjust to your Tws.vb): 
-        ' RequestHistoricalData(conId, endTimeUtc, durationStr, barSizeStr, whatToShow, useRth)
+    Private Function HBoot_TwsRequester(conId As Integer,
+                                    endUtc As Date,
+                                    durationStr As String,
+                                    barSizeStr As String,
+                                    whatToShow As String,
+                                    useRth As Integer) As Integer
+        ' TODO: Replace the following NotImplementedException with your actual call into the TWS wrapper.
+        ' Examples (commented) — pick the one that matches your project:
         '
-        ' Example signatures you may have:
-        ' Tws.RequestHistoricalData(req.ConId, req.EndTimeUtc, req.Duration, req.BarSize, req.WhatToShow, req.UseRth)
-        ' TwsHost.Client.reqHistoricalData( ... )
+        ' Return Tws.RequestHistoricalData(conId, endUtc, durationStr, barSizeStr, whatToShow, useRth)
+        ' Return TWSConn.RequestHistoricalData(conId, endUtc, durationStr, barSizeStr, whatToShow, useRth)
+        ' Return TwsHost.Client.reqHistoricalData(conId, endUtc, durationStr, barSizeStr, whatToShow, useRth)
         '
-        CALL_TWS_HISTORICAL_DATA(req.ConId, req.EndTimeUtc, req.Duration, req.BarSize, req.WhatToShow, req.UseRth)
-    End Sub
+        Throw New NotImplementedException("Wire HBoot_TwsRequester to your TWS historical request wrapper and return reqId.")
+    End Function
 
-    ''' <summary>
-    ''' TWSEvents should call this for each historical bar received.
-    ''' </summary>
-    Public Sub HBoot_OnHistoricalBar(conId As Integer, barTimeUtc As Date, o As Double, h As Double, l As Double, c As Double, v As Long)
+    ' -------------------------------------------------------------------------------------------------
+    ' Small helper to set a status label safely (optional — ignores if lblStatus missing).
+    ' -------------------------------------------------------------------------------------------------
+    Private Sub HBoot_SetStatusSafe(text As String)
         Try
-            ' === TODO: Map to your BarManager API ===
-            ' Typical idea: BarManager.AppendHistoricalBar(conId, timeframe, barTimeUtc, o,h,l,c,v)
-            BarManager.AppendHistoricalBar(conId, barTimeUtc, o, h, l, c, v)
-        Catch ex As Exception
-            ' Swallow per-bar exceptions to avoid breaking the boot
-            Debug.WriteLine($"HBoot_OnHistoricalBar error: {ex.Message}")
-        End Try
-    End Sub
-
-    ''' <summary>
-    ''' TWSEvents should call this once for the matching historicalDataEnd.
-    ''' </summary>
-    Public Sub HBoot_OnHistoricalEnd(conId As Integer)
-        ' Confirm the head of queue is this conId; then pop and proceed
-        If _hbootQueue.Count > 0 AndAlso _hbootQueue.Peek().ConId = conId Then
-            _hbootQueue.Dequeue()
-            _hbootDone += 1
-        Else
-            ' If out-of-order or duplicate end events, we still progress defensively
-            _hbootDone = Math.Min(_hbootDone + 1, _hbootTotal)
-            If _hbootQueue.Count > 0 Then _hbootQueue.Dequeue()
-        End If
-
-        ' Small visual cue (optional if you have a status label)
-        Try
-            If lblStatus IsNot Nothing Then
-                lblStatus.Text = $"Loading history... {_hbootDone}/{_hbootTotal}"
+            If lblStatus Is Nothing Then Return
+            If Me.IsHandleCreated AndAlso Me.InvokeRequired Then
+                Me.BeginInvoke(Sub() lblStatus.Text = text)
+            Else
+                lblStatus.Text = text
             End If
         Catch
-            ' ignore
-        End Try
-
-        ' Request next or finish
-        If _hbootQueue.Count = 0 Then
-            HBoot_OnAllHistoryReady()
-        Else
-            ' Add a tiny delay to be gentle with pacing
-            Dim tmr As New Timer With {.Interval = 200}
-            AddHandler tmr.Tick, Sub(sender As Object, e As EventArgs)
-                                     Dim tm = DirectCast(sender, Timer)
-                                     tm.Stop() : tm.Dispose()
-                                     HBoot_RequestNext()
-                                 End Sub
-            tmr.Start()
-        End If
-    End Sub
-
-    ''' <summary>
-    ''' Fired when all symbols’ histories are loaded. Starts strategy timers safely.
-    ''' </summary>
-    Private Sub HBoot_OnAllHistoryReady()
-        _hbootInProgress = False
-        Try
-            ' If you defer starting timers until history is ready, do it here:
-            ' Example: timerSpread.Interval = If(cbTimeframe.SelectedItem?.ToString() = "1", 1000 * 60, 1000 * 60 * 5)
-            ' timerSpread.Start()
-            OnAllHistoryReady() ' If you already have a hook method, this will call it.
-        Catch ex As Exception
-            Debug.WriteLine($"OnAllHistoryReady hook error: {ex.Message}")
-        End Try
-
-        Try
-            If lblStatus IsNot Nothing Then
-                lblStatus.Text = "History ready."
-            End If
-        Catch
-            ' ignore
+            ' ignore — label may not exist in some forms/layouts
         End Try
     End Sub
 
 #End Region
+
 
 End Class
