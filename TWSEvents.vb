@@ -20,12 +20,12 @@ Public Module TWSEvents
 
 
     Public Sub TWSConn_historicalData(reqId As Integer, bar As Bar)
-
+        HistoricalBarManager.HandleHistoricalBar(reqId, bar)
     End Sub
 
     ' Finalize historical bar load and update stop/risk logic
     Public Sub TWSConn_historicalDataEnd(reqId As Integer, start As String, endTime As String)
-
+        Console.WriteLine("Barcount in TWSConn_historicalDataEnd : " & HistoricalBarManager.BarMap(reqId).Count)
     End Sub
 
     Public Sub TWSConn_contractDetails(reqId As Integer, details As ContractDetails)

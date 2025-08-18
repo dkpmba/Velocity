@@ -74,6 +74,7 @@ Partial Class MainForm
         lblConn = New ToolStripStatusLabel()
         lblLatency = New ToolStripStatusLabel()
         lblDb = New ToolStripStatusLabel()
+        cbTimeFrame = New ToolStripComboBox()
         ToolStrip1.SuspendLayout()
         CType(MainSplit, ComponentModel.ISupportInitialize).BeginInit()
         MainSplit.Panel1.SuspendLayout()
@@ -111,7 +112,7 @@ Partial Class MainForm
         ' ToolStrip1
         ' 
         ToolStrip1.GripStyle = ToolStripGripStyle.Hidden
-        ToolStrip1.Items.AddRange(New ToolStripItem() {mnuDataConnection, btnDisconnect, ToolStripSeparator1, btnKillSwitch, ToolStripSeparator2, lblEnv, cboAccount, ToolStripSeparator3, lblStatus, txtFilterSymbol})
+        ToolStrip1.Items.AddRange(New ToolStripItem() {mnuDataConnection, btnDisconnect, ToolStripSeparator1, btnKillSwitch, ToolStripSeparator2, lblEnv, cboAccount, ToolStripSeparator3, lblStatus, txtFilterSymbol, cbTimeFrame})
         ToolStrip1.Location = New Point(0, 0)
         ToolStrip1.Name = "ToolStrip1"
         ToolStrip1.Size = New Size(1280, 25)
@@ -645,6 +646,11 @@ Partial Class MainForm
         lblDb.Size = New Size(79, 17)
         lblDb.Text = "DB: Unknown"
         ' 
+        ' cbTimeFrame
+        ' 
+        cbTimeFrame.Name = "cbTimeFrame"
+        cbTimeFrame.Size = New Size(121, 25)
+        ' 
         ' MainForm
         ' 
         AutoScaleDimensions = New SizeF(7F, 15F)
@@ -748,4 +754,5 @@ Partial Class MainForm
     Friend WithEvents lblConn As ToolStripStatusLabel
     Friend WithEvents lblLatency As ToolStripStatusLabel
     Friend WithEvents lblDb As ToolStripStatusLabel
+    Friend WithEvents cbTimeFrame As ToolStripComboBox
 End Class
