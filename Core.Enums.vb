@@ -47,4 +47,8 @@ Namespace Velocity.Core
         Critical = 3
     End Enum
 
+    Public Enum TimeFrames
+        M1
+        M5
+    End Enum
 End Namespace

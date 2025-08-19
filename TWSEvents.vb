@@ -74,6 +74,7 @@ Public Module TWSEvents
     End Sub
     Public Sub TWSConn_errMsg2(id As Integer, errorTime As Long, errorCode As Integer, errorMsg As String, advancedOrderRejectJson As String)
         RaiseEvent ApiError(errorCode, errorMsg)
+        Debug.Print($"ERROR: {errorMsg}")
     End Sub
 
     Public Sub TWSConn_nextValidId(orderId As Integer)

@@ -16,7 +16,7 @@
 
         ' Optional: set default tab
         tabMain.SelectedTab = tabMonitor
-
+        InitTimeFrameCombo()
         ' Columns are intentionally not hard-wired here; you will bind later.
         ' You can still predefine column sets at runtime once your schemas are finalized.
     End Sub
@@ -44,6 +44,7 @@
                                                               AppendAlert("Connected. nextValidId=" & id, "INFO")
                                                               EnsureLatencyTimer()   ' if you use one
                                                               PingServerTime()       ' kick off first RTT
+                                                              NotifyTwsConnected()
                                                           End Sub)
                                           End Sub
 
@@ -149,14 +150,12 @@
     ' then kick off HistoricalBarManager.StartBoot(...)
     ' -------------------------------------------------------------------------------------------------
     Private Sub HBoot_StartFromSymbols()
-        ' Resolve timeframe choice from UI
-        Dim tfText As String = TryCast(cbTimeFrame?.SelectedItem, String)
-        If String.IsNullOrWhiteSpace(tfText) Then tfText = "1" ' default to 1-minute bars
-
-        Dim barSize As String = If(tfText.Trim().Contains("1"), "1 min", "5 mins")
-        Dim duration As String = If(barSize = "1 min", "1 D", "2 D") ' lookback depth per TF
+        ' Resolve timeframe/duration from the combo (enum-backed)
+        Dim ibParams = HBoot_GetIbBarParamsFromCombo()
+        Dim barSize As String = ibParams.barSize      ' "1 min" or "5 mins"
+        Dim duration As String = ibParams.duration    ' "1 D" or "2 D"
         Dim whatToShow As String = "TRADES"
-        Dim useRth As Integer = 0 ' 0=All sessions, 1=RTH only
+        Dim useRth As Integer = 0
         Dim endUtc As Date = Date.UtcNow
 
         ' Collect ConIds from dgvSymbols
@@ -255,7 +254,8 @@
     ' -------------------------------------------------------------------------------------------------
     Private Sub HBoot_SetupRequesterIfNeeded()
         If HistoricalBarManager.Requester IsNot Nothing Then Exit Sub
-        HistoricalBarManager.Requester = AddressOf HBoot_TwsRequester
+        'HistoricalBarManager.Requester = AddressOf HBoot_TwsRequester
+        HistoricalBarManager.Requester = AddressOf TwsHost.RequestHistoricalData
     End Sub
 
     ''' <summary>

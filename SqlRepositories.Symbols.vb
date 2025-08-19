@@ -6,7 +6,7 @@ Namespace Velocity.Core
 
     Public Class SqlSymbolRepository
         Implements ISymbolRepository
-
+        Public Shared dictContract As New Dictionary(Of Integer, Contract)()
         Private ReadOnly _cf As IConnectionFactory
         Public Sub New(cf As IConnectionFactory)
             _cf = cf
@@ -14,6 +14,7 @@ Namespace Velocity.Core
 
         Public Function GetAll() As IEnumerable(Of SymbolRow) Implements ISymbolRepository.GetAll
             Dim list As New List(Of SymbolRow)()
+
             Using conn = CType(_cf.CreateOpen(), SqlConnection)
                 Using cmd As New SqlCommand("SELECT cid, symbol, sectype, exchange, mult, increment, iv, liquidity_score, enabled FROM dbo.symbols ORDER BY symbol", conn)
                     Using r = cmd.ExecuteReader()
@@ -30,6 +31,21 @@ Namespace Velocity.Core
                                 .Enabled = CBool(r("enabled"))
                             }
                             list.Add(row)
+                            ' ----- Minimal IB contract for this ConId (SMART/STK/USD defaults) -----
+                            Dim cid As Integer = CInt(row.CID)  ' IB Contract.ConId is Integer
+                            Dim sec As String = If(String.IsNullOrWhiteSpace(row.SecType), "STK", row.SecType)
+                            Dim exg As String = If(String.IsNullOrWhiteSpace(row.Exchange), "SMART", row.Exchange)
+
+                            Dim ct As New Contract With {
+                                .ConId = cid,
+                                .SecType = sec,
+                                .Exchange = exg,
+                                .Currency = "USD",
+                                .IncludeExpired = False
+                            }
+
+                            ' Upsert into cache (overwrite if reload changes exchange, etc.)
+                            dictContract(cid) = ct
                         End While
                     End Using
                 End Using
