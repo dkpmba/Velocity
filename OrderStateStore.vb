@@ -43,33 +43,40 @@ Module OrderStateStore
         Public Property AvgFillPrice As Double
         Public Property LeavesQty As Integer
 
-        Public Property Commission As Double    ' commission + fees (per IB new API)
-        Public Property RealizedPnl As Double   ' if reported by IB on the commission report
+        Public Property Commission As Double    ' commission + fees (new IB API)
+        Public Property RealizedPnl As Double   ' if reported by commission report
 
         Public Property Source As String        ' UI / DHUL / etc
         Public Property Note As String
         Public Property LastUpdateUtc As Date
-        ' --- add to OrderRow ---
+
+        ' --- Columns expected by your existing Orders grid ---
         Public Property Account As String
         Public Property Exchange As String
         Public Property [Error] As String
 
-        ' Your grid expects these names:
-        Public Property Time As Date            ' bind your "Time" column here
-        Public ReadOnly Property OID As Integer ' alias for OrderId
-            Get : Return OrderId : End Get
+        Public Property Time As Date            ' bind "Time" column here (updated on events)
+
+        Public ReadOnly Property OID As Integer
+            Get
+                Return OrderId
+            End Get
         End Property
-        Public ReadOnly Property TID As Long    ' alias for PermId
-            Get : Return PermId : End Get
+
+        Public ReadOnly Property TID As Long
+            Get
+                Return PermId
+            End Get
         End Property
-        Public Property Qty As Integer          ' alias for TotalQty
-        Public Property Price As Double?        ' alias for LmtPrice (for MKT it can be Nothing)
+
+        Public Property Qty As Integer          ' alias for TotalQty (kept in sync)
+        Public Property Price As Double?        ' alias for LmtPrice (Nothing for MKT)
         Public Property Fills As Integer        ' alias for FilledQty
         Public Property Remaining As Integer    ' alias for LeavesQty
 
         Public ReadOnly Property Display As String
             Get
-                Dim px = If(LmtPrice.HasValue, LmtPrice.Value.ToString("G"), "-")
+                Dim px As String = If(LmtPrice.HasValue, LmtPrice.Value.ToString("G"), "-")
                 Return $"{OrderId}:{Symbol} {Side} {TotalQty} {OrderType}@{px} [{Status}]"
             End Get
         End Property
@@ -82,6 +89,7 @@ Module OrderStateStore
     Private ReadOnly _byOrderId As New Dictionary(Of Integer, OrderRow)()
     Private ReadOnly _byPermId As New Dictionary(Of Long, OrderRow)()
     Private ReadOnly _orderIdByExecId As New Dictionary(Of String, Integer)(StringComparer.Ordinal)
+
     Public ReadOnly OrdersBinding As New BindingList(Of OrderRow)()
 
     ' ------------
@@ -134,16 +142,18 @@ Module OrderStateStore
             .RealizedPnl = 0,
             .Source = source,
             .Note = note,
-            .LastUpdateUtc = Date.UtcNow,
-            .Account = order.Account,
-            .Exchange = contract.PrimaryExch,
-            .Time = Date.UtcNow,
-            .Qty = .TotalQty,
-            .Price = .LmtPrice,
-            .Fills = 0,
-            .Remaining = .TotalQty,
-            .Exchange = contract.Exchange
+            .LastUpdateUtc = Date.UtcNow
         }
+
+        ' Grid-facing aliases & extras
+        r.Account = order.Account
+        r.Exchange = If(String.IsNullOrWhiteSpace(contract.PrimaryExch), contract.Exchange, contract.PrimaryExch)
+        r.Time = Date.UtcNow
+        r.Qty = r.TotalQty
+        r.Price = r.LmtPrice
+        r.Fills = 0
+        r.Remaining = r.TotalQty
+
         Upsert(r)
     End Sub
 
@@ -154,6 +164,7 @@ Module OrderStateStore
                 r.Status = "PendingChange"
                 r.Note = note
                 r.LastUpdateUtc = Date.UtcNow
+                r.Time = r.LastUpdateUtc
             End If
         End SyncLock
     End Sub
@@ -165,6 +176,7 @@ Module OrderStateStore
                 r.Status = "PendingCancel"
                 r.Note = note
                 r.LastUpdateUtc = Date.UtcNow
+                r.Time = r.LastUpdateUtc
             End If
         End SyncLock
     End Sub
@@ -177,7 +189,7 @@ Module OrderStateStore
     Public Sub OnOpenOrder(orderId As Integer, c As Contract, o As IBApi.Order, state As IBApi.OrderState)
         Dim r As New OrderRow With {
             .OrderId = orderId,
-            .PermId = o.PermId,
+            .PermId = CLng(o.PermId),
             .ClientId = o.ClientId,
             .ParentId = o.ParentId,
             .ConId = c.ConId,
@@ -189,23 +201,35 @@ Module OrderStateStore
             .TotalQty = CInt(o.TotalQuantity),
             .LmtPrice = NzNullable(o.LmtPrice),
             .AuxPrice = NzNullable(o.AuxPrice),
-            .Status = NormalizeStatus(If(state?.Status, "")),
-            .LastUpdateUtc = Date.UtcNow,
-            .Account = o.Account,
-            .Exchange = c.PrimaryExch,
-            If String.IsNullOrWhiteSpace(r.Exchange) Then .Exchange = c.Exchange,
-            .Time = Date.UtcNow,
-            .Qty = CInt(o.TotalQuantity),
-            .Price = NzNullable(o.LmtPrice),
-            ' Filled/Remaining will be set by orderStatus; set defaults now:
-        .Fills = 0,
-            .Remaining = .Qty
+            .Status = NormalizeStatus(If(state IsNot Nothing, state.Status, Nothing)),
+            .LastUpdateUtc = Date.UtcNow
         }
+
+        ' Grid-facing
+        r.Account = o.Account
+        r.Exchange = If(String.IsNullOrWhiteSpace(c.PrimaryExch), c.Exchange, c.PrimaryExch)
+        r.Time = Date.UtcNow
+        r.Qty = CInt(o.TotalQuantity)
+        r.Price = r.LmtPrice
+        r.Fills = 0
+        r.Remaining = r.Qty
+
         Upsert(r)
     End Sub
 
     ' orderStatus: updates live status + fill progress
-    Public Sub OnOrderStatus(orderId As Integer, status As String, filled As Double, remaining As Double, avgFillPrice As Double, permId As Integer, parentId As Integer, lastFillPrice As Double, clientId As Integer, whyHeld As String, mktCapPrice As Double)
+    Public Sub OnOrderStatus(orderId As Integer,
+                             status As String,
+                             filled As Double,
+                             remaining As Double,
+                             avgFillPrice As Double,
+                             permId As Integer,
+                             parentId As Integer,
+                             lastFillPrice As Double,
+                             clientId As Integer,
+                             whyHeld As String,
+                             mktCapPrice As Double)
+
         SyncLock _sync
             Dim r As OrderRow = Nothing
             If Not _byOrderId.TryGetValue(orderId, r) Then
@@ -227,15 +251,13 @@ Module OrderStateStore
             r.ParentId = parentId
             r.ClientId = clientId
             r.LastUpdateUtc = Date.UtcNow
-            r.FilledQty = SafeInt(filled)
-            r.LeavesQty = SafeInt(remaining)
 
-            ' keep the aliases in sync for your grid:
+            ' keep grid aliases in sync
             r.Fills = r.FilledQty
             r.Remaining = r.LeavesQty
-            r.Time = Date.UtcNow
-
-            ' Binding list holds same reference; nothing else needed.
+            r.Qty = Math.Max(r.TotalQty, r.FilledQty + r.LeavesQty)
+            r.Price = r.LmtPrice
+            r.Time = r.LastUpdateUtc
         End SyncLock
     End Sub
 
@@ -258,20 +280,29 @@ Module OrderStateStore
                 _orderIdByExecId(exec.ExecId) = oid
             End If
 
-            ' Attach basic contract info (useful if openOrder didn't arrive yet)
-            r.ConId = If(c IsNot Nothing, c.ConId, r.ConId)
-            r.SecType = If(c IsNot Nothing, c.SecType, r.SecType)
-            r.Symbol = If(c IsNot Nothing, c.Symbol, r.Symbol)
+            ' Attach basic contract info
+            If c IsNot Nothing Then
+                r.ConId = c.ConId
+                r.SecType = c.SecType
+                r.Symbol = c.Symbol
+                r.Exchange = If(String.IsNullOrWhiteSpace(c.PrimaryExch), c.Exchange, c.PrimaryExch)
+            End If
 
             ' Progress
             If r.TotalQty <= 0 Then r.TotalQty = shares ' best-effort if unknown
-            Dim prevFilled = r.FilledQty
+            Dim prevFilled As Integer = r.FilledQty
             r.FilledQty = Math.Max(prevFilled + shares, 0)
             r.LeavesQty = Math.Max(r.TotalQty - r.FilledQty, 0)
             r.AvgFillPrice = WeightedAvg(prevFilled, r.AvgFillPrice, shares, px)
             r.Status = If(r.FilledQty >= r.TotalQty AndAlso r.TotalQty > 0, "Filled", "PartiallyFilled")
             r.LastUpdateUtc = Date.UtcNow
-            r.Time = Date.UtcNow
+
+            ' grid aliases
+            r.Fills = r.FilledQty
+            r.Remaining = r.LeavesQty
+            r.Qty = Math.Max(r.TotalQty, r.FilledQty + r.LeavesQty)
+            r.Price = r.LmtPrice
+            r.Time = r.LastUpdateUtc
         End SyncLock
     End Sub
 
@@ -291,10 +322,23 @@ Module OrderStateStore
                 Dim r As OrderRow = Nothing
                 If _byOrderId.TryGetValue(oid, r) Then
                     r.Commission += amt
-                    ' If IB provides realized PnL on report, accumulate (best effort)
                     r.RealizedPnl += realized
                     r.LastUpdateUtc = Date.UtcNow
+                    r.Time = r.LastUpdateUtc
                 End If
+            End If
+        End SyncLock
+    End Sub
+
+    ' Add IB error hook (optional)
+    Public Sub OnOrderError(orderId As Integer, message As String)
+        If orderId <= 0 OrElse String.IsNullOrWhiteSpace(message) Then Exit Sub
+        SyncLock _sync
+            Dim r As OrderRow = Nothing
+            If _byOrderId.TryGetValue(orderId, r) Then
+                r.Error = message
+                r.LastUpdateUtc = Date.UtcNow
+                r.Time = r.LastUpdateUtc
             End If
         End SyncLock
     End Sub
@@ -316,34 +360,51 @@ Module OrderStateStore
     End Sub
 
     Private Sub CopyInto(dst As OrderRow, src As OrderRow)
-        dst.PermId = If(src.PermId > 0, src.PermId, dst.PermId)
-        dst.ClientId = If(src.ClientId > 0, src.ClientId, dst.ClientId)
-        dst.ParentId = src.ParentId
+        ' IDs / parents
+        If src.PermId > 0 Then dst.PermId = src.PermId
+        If src.ClientId > 0 Then dst.ClientId = src.ClientId
+        If src.ParentId > 0 Then dst.ParentId = src.ParentId
 
-        dst.ConId = If(src.ConId > 0, src.ConId, dst.ConId)
+        ' Contract
+        If src.ConId > 0 Then dst.ConId = src.ConId
         If Not String.IsNullOrWhiteSpace(src.SecType) Then dst.SecType = src.SecType
         If Not String.IsNullOrWhiteSpace(src.Symbol) Then dst.Symbol = src.Symbol
+        If Not String.IsNullOrWhiteSpace(src.Exchange) Then dst.Exchange = src.Exchange
 
+        ' Side / type / tif
         If Not String.IsNullOrWhiteSpace(src.Side) Then dst.Side = src.Side
         If Not String.IsNullOrWhiteSpace(src.OrderType) Then dst.OrderType = src.OrderType
         If Not String.IsNullOrWhiteSpace(src.Tif) Then dst.Tif = src.Tif
-        If src.TotalQty > 0 Then dst.TotalQty = src.TotalQty
 
+        ' Qty / prices
+        If src.TotalQty > 0 Then dst.TotalQty = src.TotalQty
         If src.LmtPrice.HasValue Then dst.LmtPrice = src.LmtPrice
         If src.AuxPrice.HasValue Then dst.AuxPrice = src.AuxPrice
 
+        ' Status / progress
         If Not String.IsNullOrWhiteSpace(src.Status) Then dst.Status = src.Status
         If src.FilledQty > 0 Then dst.FilledQty = src.FilledQty
         If src.LeavesQty >= 0 Then dst.LeavesQty = src.LeavesQty
         If src.AvgFillPrice > 0 Then dst.AvgFillPrice = src.AvgFillPrice
 
+        ' Money
         If src.Commission > 0 Then dst.Commission = Math.Max(dst.Commission, src.Commission)
         If src.RealizedPnl <> 0 Then dst.RealizedPnl = dst.RealizedPnl + src.RealizedPnl
 
-        If Not String.IsNullOrWhiteSpace(src.Source) Then dst.Source = src.Source
+        ' Grid aliases / misc
+        If Not String.IsNullOrWhiteSpace(src.Account) Then dst.Account = src.Account
         If Not String.IsNullOrWhiteSpace(src.Note) Then dst.Note = src.Note
+        If Not String.IsNullOrWhiteSpace(src.Error) Then dst.Error = src.Error
 
-        If src.LastUpdateUtc > dst.LastUpdateUtc Then dst.LastUpdateUtc = src.LastUpdateUtc
+        If src.Qty > 0 Then dst.Qty = src.Qty
+        If src.Price.HasValue Then dst.Price = src.Price
+        If src.Fills > 0 Then dst.Fills = src.Fills
+        If src.Remaining >= 0 Then dst.Remaining = src.Remaining
+
+        If src.LastUpdateUtc > dst.LastUpdateUtc Then
+            dst.LastUpdateUtc = src.LastUpdateUtc
+            dst.Time = src.LastUpdateUtc
+        End If
     End Sub
 
     Private Function NormalizeStatus(ib As String) As String
@@ -367,30 +428,23 @@ Module OrderStateStore
         Catch
             n = 0
         End Try
-        Return Math.Max(0, n)
+        If n < 0 Then n = 0
+        Return n
     End Function
 
     Private Function NzNullable(v As Double) As Double?
-        If Double.IsNaN(v) OrElse v = 0 Then Return Nothing
+        If Double.IsNaN(v) OrElse v = 0 Then
+            Return Nothing
+        End If
         Return v
     End Function
 
     Private Function WeightedAvg(prevQty As Integer, prevAvg As Double, addQty As Integer, addPx As Double) As Double
         If addQty <= 0 Then Return prevAvg
         If prevQty <= 0 OrElse prevAvg <= 0 Then Return addPx
-        Dim tot = prevQty + addQty
+        Dim tot As Integer = prevQty + addQty
         Return ((prevQty * prevAvg) + (addQty * addPx)) / tot
     End Function
-    Public Sub OnOrderError(orderId As Integer, message As String)
-        If orderId <= 0 OrElse String.IsNullOrWhiteSpace(message) Then Exit Sub
-        SyncLock _sync
-            Dim r As OrderRow = Nothing
-            If _byOrderId.TryGetValue(orderId, r) Then
-                r.Error = message
-                r.Time = Date.UtcNow
-                r.LastUpdateUtc = r.Time
-            End If
-        End SyncLock
-    End Sub
+
 
 End Module

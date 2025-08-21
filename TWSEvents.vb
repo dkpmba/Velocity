@@ -114,7 +114,7 @@ Public Module TWSEvents
         Debug.Print($"ERROR: {errorMsg}")
 
         If id > 0 Then
-            OnOrderError(id, Message)
+            OnOrderError(id, errorMsg)
         End If
     End Sub
 
