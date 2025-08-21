@@ -41,6 +41,7 @@ Public Class Tws
     End Sub
 
     Public Sub commissionAndFeesReport(commissionAndFeesReport As CommissionAndFeesReport) Implements EWrapper.commissionAndFeesReport
+        TWSConn_commissionReport(commissionAndFeesReport)
     End Sub
 
     Public Sub completedOrder(contract As Contract, order As Order, orderState As OrderState) Implements EWrapper.completedOrder
@@ -87,6 +88,7 @@ Public Class Tws
     End Sub
 
     Public Sub execDetails(reqId As Integer, contract As Contract, execution As Execution) Implements EWrapper.execDetails
+        TWSConn_execDetails(reqId, contract, execution)
     End Sub
 
     Public Sub execDetailsEnd(reqId As Integer) Implements EWrapper.execDetailsEnd

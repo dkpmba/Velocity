@@ -223,12 +223,16 @@
         ' If you already have methods below, uncomment the calls; if not, place your starts here.
 
         ' 1) Start market data subscriptions (underlyings + open option legs)
-        'Try
-        '    EnsureSymbolSubscriptions()      ' subscribes all underlyings in dgvSymbols (deduped)
-        '    EnsureOpenLegSubscriptions()     ' subscribes all open option CIDs in dgvMonitor
-        'Catch ex As Exception
-        '    Debug.WriteLine($"Market subs error: {ex.Message}")
-        'End Try
+        Try
+            ' Keep only the most recent 60 completed bars per (ConId, TF)
+            BarManager.SetMaxBarsPerSeries(60)
+            EnsureSymbolSubscriptions()      ' subscribes all underlyings in dgvSymbols (deduped)
+            EnsureOpenLegSubscriptions()     ' subscribes all open option CIDs in dgvMonitor
+            InitBarFlushTimer()
+            InitQuotesUiTimer()
+        Catch ex As Exception
+            Debug.WriteLine($"Market subs error: {ex.Message}")
+        End Try
 
         ' 2) Start any per-second/per-bar timers (theta decay, strategy loop, etc.)
         'Try

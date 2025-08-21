@@ -81,6 +81,14 @@ Partial Class ConnectionManager
         lblReqTimeout = New Label()
         nudConnTimeout = New NumericUpDown()
         lblConnTimeout = New Label()
+        tabDataConnection = New TabPage()
+        grpDatabase = New GroupBox()
+        lblConn = New Label()
+        txtDbConnection = New TextBox()
+        btnTestDb = New Button()
+        btnSaveDb = New Button()
+        btnLoadDb = New Button()
+        lblDbStatus = New Label()
         grpLog = New GroupBox()
         lvLog = New ListView()
         colTime = New ColumnHeader()
@@ -91,14 +99,6 @@ Partial Class ConnectionManager
         lblConnStatus = New ToolStripStatusLabel()
         lblLatency = New ToolStripStatusLabel()
         lblActiveProfile = New ToolStripStatusLabel()
-        grpDatabase = New GroupBox()
-        lblConn = New Label()
-        txtDbConnection = New TextBox()
-        btnTestDb = New Button()
-        btnSaveDb = New Button()
-        btnLoadDb = New Button()
-        lblDbStatus = New Label()
-        tabDataConnection = New TabPage()
         tsTop.SuspendLayout()
         CType(splitMain, ComponentModel.ISupportInitialize).BeginInit()
         splitMain.Panel1.SuspendLayout()
@@ -122,9 +122,10 @@ Partial Class ConnectionManager
         grpTimeouts.SuspendLayout()
         CType(nudReqTimeout, ComponentModel.ISupportInitialize).BeginInit()
         CType(nudConnTimeout, ComponentModel.ISupportInitialize).BeginInit()
+        tabDataConnection.SuspendLayout()
+        grpDatabase.SuspendLayout()
         grpLog.SuspendLayout()
         status.SuspendLayout()
-        grpDatabase.SuspendLayout()
         SuspendLayout()
         ' 
         ' tsTop
@@ -732,6 +733,86 @@ Partial Class ConnectionManager
         lblConnTimeout.TabIndex = 0
         lblConnTimeout.Text = "Connection timeout"
         ' 
+        ' tabDataConnection
+        ' 
+        tabDataConnection.Controls.Add(grpDatabase)
+        tabDataConnection.Location = New Point(4, 24)
+        tabDataConnection.Name = "tabDataConnection"
+        tabDataConnection.Size = New Size(902, 371)
+        tabDataConnection.TabIndex = 3
+        tabDataConnection.Text = "Data Connection"
+        tabDataConnection.UseVisualStyleBackColor = True
+        ' 
+        ' grpDatabase
+        ' 
+        grpDatabase.Anchor = AnchorStyles.Top Or AnchorStyles.Left Or AnchorStyles.Right
+        grpDatabase.Controls.Add(lblConn)
+        grpDatabase.Controls.Add(txtDbConnection)
+        grpDatabase.Controls.Add(btnTestDb)
+        grpDatabase.Controls.Add(btnSaveDb)
+        grpDatabase.Controls.Add(btnLoadDb)
+        grpDatabase.Controls.Add(lblDbStatus)
+        grpDatabase.Location = New Point(12, 12)
+        grpDatabase.Name = "grpDatabase"
+        grpDatabase.Size = New Size(560, 150)
+        grpDatabase.TabIndex = 0
+        grpDatabase.TabStop = False
+        grpDatabase.Text = "Database"
+        ' 
+        ' lblConn
+        ' 
+        lblConn.AutoSize = True
+        lblConn.Location = New Point(12, 28)
+        lblConn.Name = "lblConn"
+        lblConn.Size = New Size(106, 15)
+        lblConn.TabIndex = 0
+        lblConn.Text = "Connection String:"
+        ' 
+        ' txtDbConnection
+        ' 
+        txtDbConnection.Anchor = AnchorStyles.Top Or AnchorStyles.Left Or AnchorStyles.Right
+        txtDbConnection.Location = New Point(15, 46)
+        txtDbConnection.Name = "txtDbConnection"
+        txtDbConnection.Size = New Size(530, 23)
+        txtDbConnection.TabIndex = 1
+        ' 
+        ' btnTestDb
+        ' 
+        btnTestDb.Location = New Point(15, 84)
+        btnTestDb.Name = "btnTestDb"
+        btnTestDb.Size = New Size(90, 28)
+        btnTestDb.TabIndex = 2
+        btnTestDb.Text = "Test"
+        btnTestDb.UseVisualStyleBackColor = True
+        ' 
+        ' btnSaveDb
+        ' 
+        btnSaveDb.Location = New Point(115, 84)
+        btnSaveDb.Name = "btnSaveDb"
+        btnSaveDb.Size = New Size(90, 28)
+        btnSaveDb.TabIndex = 3
+        btnSaveDb.Text = "Save"
+        btnSaveDb.UseVisualStyleBackColor = True
+        ' 
+        ' btnLoadDb
+        ' 
+        btnLoadDb.Location = New Point(215, 84)
+        btnLoadDb.Name = "btnLoadDb"
+        btnLoadDb.Size = New Size(90, 28)
+        btnLoadDb.TabIndex = 4
+        btnLoadDb.Text = "Load"
+        btnLoadDb.UseVisualStyleBackColor = True
+        ' 
+        ' lblDbStatus
+        ' 
+        lblDbStatus.Anchor = AnchorStyles.Top Or AnchorStyles.Left Or AnchorStyles.Right
+        lblDbStatus.ForeColor = Color.DimGray
+        lblDbStatus.Location = New Point(15, 122)
+        lblDbStatus.Name = "lblDbStatus"
+        lblDbStatus.Size = New Size(530, 20)
+        lblDbStatus.TabIndex = 5
+        lblDbStatus.Text = "Enter a connection string and click Test."
+        ' 
         ' grpLog
         ' 
         grpLog.Controls.Add(lvLog)
@@ -809,84 +890,6 @@ Partial Class ConnectionManager
         lblActiveProfile.Size = New Size(99, 17)
         lblActiveProfile.Text = "Profile: (unsaved)"
         ' 
-        ' grpDatabase
-        ' 
-        grpDatabase.Anchor = AnchorStyles.Top Or AnchorStyles.Left Or AnchorStyles.Right
-        grpDatabase.Controls.Add(lblConn)
-        grpDatabase.Controls.Add(txtDbConnection)
-        grpDatabase.Controls.Add(btnTestDb)
-        grpDatabase.Controls.Add(btnSaveDb)
-        grpDatabase.Controls.Add(btnLoadDb)
-        grpDatabase.Controls.Add(lblDbStatus)
-        grpDatabase.Location = New Point(12, 12)
-        grpDatabase.Name = "grpDatabase"
-        grpDatabase.Size = New Size(560, 150)
-        grpDatabase.TabIndex = 0
-        grpDatabase.Text = "Database"
-        ' 
-        ' lblConn
-        ' 
-        lblConn.AutoSize = True
-        lblConn.Location = New Point(12, 28)
-        lblConn.Name = "lblConn"
-        lblConn.Size = New Size(106, 15)
-        lblConn.TabIndex = 0
-        lblConn.Text = "Connection String:"
-        ' 
-        ' txtDbConnection
-        ' 
-        txtDbConnection.Anchor = AnchorStyles.Top Or AnchorStyles.Left Or AnchorStyles.Right
-        txtDbConnection.Location = New Point(15, 46)
-        txtDbConnection.Name = "txtDbConnection"
-        txtDbConnection.Size = New Size(530, 23)
-        txtDbConnection.TabIndex = 1
-        ' 
-        ' btnTestDb
-        ' 
-        btnTestDb.Location = New Point(15, 84)
-        btnTestDb.Name = "btnTestDb"
-        btnTestDb.Size = New Size(90, 28)
-        btnTestDb.TabIndex = 2
-        btnTestDb.Text = "Test"
-        btnTestDb.UseVisualStyleBackColor = True
-        ' 
-        ' btnSaveDb
-        ' 
-        btnSaveDb.Location = New Point(115, 84)
-        btnSaveDb.Name = "btnSaveDb"
-        btnSaveDb.Size = New Size(90, 28)
-        btnSaveDb.TabIndex = 3
-        btnSaveDb.Text = "Save"
-        btnSaveDb.UseVisualStyleBackColor = True
-        ' 
-        ' btnLoadDb
-        ' 
-        btnLoadDb.Location = New Point(215, 84)
-        btnLoadDb.Name = "btnLoadDb"
-        btnLoadDb.Size = New Size(90, 28)
-        btnLoadDb.TabIndex = 4
-        btnLoadDb.Text = "Load"
-        btnLoadDb.UseVisualStyleBackColor = True
-        ' 
-        ' lblDbStatus
-        ' 
-        lblDbStatus.Anchor = AnchorStyles.Top Or AnchorStyles.Left Or AnchorStyles.Right
-        lblDbStatus.ForeColor = Color.DimGray
-        lblDbStatus.Location = New Point(15, 122)
-        lblDbStatus.Name = "lblDbStatus"
-        lblDbStatus.Size = New Size(530, 20)
-        lblDbStatus.TabIndex = 5
-        lblDbStatus.Text = "Enter a connection string and click Test."
-        ' 
-        ' tabDataConnection
-        ' 
-        tabDataConnection.Location = New Point(4, 24)
-        tabDataConnection.Name = "tabDataConnection"
-        tabDataConnection.Size = New Size(902, 371)
-        tabDataConnection.TabIndex = 3
-        tabDataConnection.Text = "Data Connection"
-        tabDataConnection.UseVisualStyleBackColor = True
-        ' 
         ' ConnectionManager
         ' 
         AutoScaleDimensions = New SizeF(7F, 15F)
@@ -895,8 +898,6 @@ Partial Class ConnectionManager
         Controls.Add(splitMain)
         Controls.Add(tsTop)
         Controls.Add(status)
-        'Controls.Add(grpDatabase)
-        Me.tabDataConnection.Controls.Add(Me.grpDatabase)
         MinimumSize = New Size(1100, 600)
         Name = "ConnectionManager"
         StartPosition = FormStartPosition.CenterParent
@@ -932,11 +933,12 @@ Partial Class ConnectionManager
         grpTimeouts.PerformLayout()
         CType(nudReqTimeout, ComponentModel.ISupportInitialize).EndInit()
         CType(nudConnTimeout, ComponentModel.ISupportInitialize).EndInit()
+        tabDataConnection.ResumeLayout(False)
+        grpDatabase.ResumeLayout(False)
+        grpDatabase.PerformLayout()
         grpLog.ResumeLayout(False)
         status.ResumeLayout(False)
         status.PerformLayout()
-        grpDatabase.ResumeLayout(False)
-        grpDatabase.PerformLayout()
         ResumeLayout(False)
         PerformLayout()
 

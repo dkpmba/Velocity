@@ -24,7 +24,7 @@ Option Explicit On
 Module BarManager
 
     ' --------------------- Internal types ---------------------
-
+    Private _maxBarsPerSeries As Integer = 60 ' default per your request
     ''' <summary>
     ''' Immutable record for a completed OHLCV bar.
     ''' TimeUtc is the start of the bar's bucket in UTC.
@@ -124,6 +124,7 @@ Module BarManager
             ' De-dupe: skip if not strictly newer than last stored time
             If s.Completed.Count > 0 AndAlso s.Completed(s.Completed.Count - 1).TimeUtc >= t Then Exit Sub
             s.Completed.Add(New BarRec(t, o, h, l, c, v))
+            TrimSeries(s)
         End SyncLock
     End Sub
 
@@ -152,9 +153,23 @@ Module BarManager
 
             ' New bucket? finalize previous current bar into Completed if not already captured
             If s.Curr.TimeUtc <> Date.MinValue AndAlso s.Curr.TimeUtc <> bucket Then
+                ' ---- capture the just-closed bar BEFORE resetting Curr ----
+                Dim closedT = s.Curr.TimeUtc
+                Dim closedO = s.Curr.Open
+                Dim closedH = s.Curr.High
+                Dim closedL = s.Curr.Low
+                Dim closedC = s.Curr.Close
+                Dim closedV = s.Curr.Volume
+                Dim added As Boolean = False
                 If s.Completed.Count = 0 OrElse s.Completed(s.Completed.Count - 1).TimeUtc < s.Curr.TimeUtc Then
                     s.Completed.Add(New BarRec(s.Curr.TimeUtc, s.Curr.Open, s.Curr.High, s.Curr.Low, s.Curr.Close, s.Curr.Volume))
+                    TrimSeries(s)
+                    added = True
                 End If
+                ' ---- print the bar we just closed ----
+                Debug.Print($"[BAR CLOSED] conId={conId} tf={timeframe} t={closedT:yyyy-MM-dd HH:mm} " &
+                $"O={closedO} H={closedH} L={closedL} C={closedC} V={closedV} added={added} " &
+                $"completedCount={s.Completed.Count}")
                 s.Curr.Reset(bucket, lastPrice)
                 s.Curr.Volume = tickVolume
                 Exit Sub
@@ -171,6 +186,7 @@ Module BarManager
             If lastPrice > s.Curr.High Then s.Curr.High = lastPrice
             If lastPrice < s.Curr.Low Then s.Curr.Low = lastPrice
             s.Curr.Close = lastPrice
+            'Debug.Print($"[CurrentBar BAR] Time={s.Curr.TimeUtc} Open={s.Curr.Open} High={s.Curr.High} Low={s.Curr.Low} Close={s.Curr.Close}")
             If tickVolume > 0 Then s.Curr.Volume += tickVolume
         End SyncLock
     End Sub
@@ -263,4 +279,61 @@ Module BarManager
         End SyncLock
     End Function
 
+    ''' <summary>Optionally change the retention cap at runtime (>=1).</summary>
+    Public Sub SetMaxBarsPerSeries(n As Integer)
+        SyncLock _sync
+            _maxBarsPerSeries = Math.Max(1, n)
+            ' Trim all existing series immediately
+            For Each kv In _map
+                For Each tf In kv.Value.Values
+                    TrimSeries(tf)
+                Next
+            Next
+        End SyncLock
+    End Sub
+
+    ''' <summary>Trim "Completed" list to the newest _maxBarsPerSeries items.</summary>
+    Private Sub TrimSeries(s As Series)
+        If s Is Nothing Then Exit Sub
+        Dim extra As Integer = s.Completed.Count - _maxBarsPerSeries
+        If extra > 0 Then
+            s.Completed.RemoveRange(0, extra)
+        End If
+    End Sub
+
+    ' ===== Minute-boundary flush support =====
+    ''' <summary>Clear a CurrentBar to "no data" state.</summary>
+    Private Sub ClearCurrent(cb As CurrentBar)
+        cb.TimeUtc = Date.MinValue
+        cb.Open = 0 : cb.High = 0 : cb.Low = 0 : cb.Close = 0 : cb.Volume = 0
+    End Sub
+
+    ''' <summary>
+    ''' Flush any in-progress bar that belongs to a previous bucket relative to nowUtc.
+    ''' This guarantees the previous bar is "sealed" even if no tick arrives exactly at :00.
+    ''' If no new tick arrives for the next bucket, we keep Curr empty (no phantom bar).
+    ''' </summary>
+    Public Sub FlushAllAtBoundary(nowUtc As Date)
+        SyncLock _sync
+            Dim nowU = nowUtc.ToUniversalTime()
+            For Each conKvp In _map
+                For Each tfKvp In conKvp.Value
+                    Dim timeframe As String = tfKvp.Key
+                    Dim s As Series = tfKvp.Value
+                    If s Is Nothing OrElse s.Curr.TimeUtc = Date.MinValue Then Continue For
+
+                    Dim boundary As Date = BucketStart(nowU, timeframe)
+                    ' If current bar's bucket is older than the boundary, finalize it
+                    If s.Curr.TimeUtc < boundary Then
+                        If s.Completed.Count = 0 OrElse s.Completed(s.Completed.Count - 1).TimeUtc < s.Curr.TimeUtc Then
+                            s.Completed.Add(New BarRec(s.Curr.TimeUtc, s.Curr.Open, s.Curr.High, s.Curr.Low, s.Curr.Close, s.Curr.Volume))
+                            TrimSeries(s)
+                        End If
+                        ' Do NOT start a new current bar without a tick; leave it empty
+                        ClearCurrent(s.Curr)
+                    End If
+                Next
+            Next
+        End SyncLock
+    End Sub
 End Module

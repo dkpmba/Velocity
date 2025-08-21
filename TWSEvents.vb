@@ -35,10 +35,19 @@ Public Module TWSEvents
 
 
     Public Sub TWSConn_tickSize(tickerId As Integer, field As Integer, size As Decimal)
-
+        Try
+            MainForm.Mkt_OnTickSize(tickerId, field, size)
+        Catch ex As Exception
+            Debug.WriteLine($"tickSize route error: {ex.Message}")
+        End Try
     End Sub
 
     Public Sub TWSConn_tickPrice(tickerId As Integer, field As Integer, price As Double, attribs As TickAttrib)
+        Try
+            MainForm.Mkt_OnTickPrice(tickerId, field, price)
+        Catch ex As Exception
+            Debug.WriteLine($"tickPrice route error: {ex.Message}")
+        End Try
     End Sub
 
 
@@ -52,14 +61,42 @@ Public Module TWSEvents
     Public Sub TWSConn_orderStatus(orderId As Integer, status As String, filled As Decimal, remaining As Decimal,
                                 avgFillPrice As Double, permId As Integer, parentId As Integer, lastFillPrice As Double,
                                 clientId As Integer, whyHeld As String, mktCapPrice As Double)
-
+        Try
+            OrderStateStore.OnOrderStatus(orderId, status, CDbl(filled), CDbl(remaining), avgFillPrice, permId, parentId, lastFillPrice, clientId, whyHeld, mktCapPrice)
+        Catch ex As Exception
+            Debug.WriteLine($"orderStatus route error: {ex.Message}")
+        End Try
     End Sub
 
 
     Public Sub TWSConn_openOrder(orderId As Integer, contract As Contract, order As Order, orderState As OrderState)
-
+        Try
+            OrderStateStore.OnOpenOrder(orderId, contract, order, orderState)
+        Catch ex As Exception
+            Debug.WriteLine($"openOrder route error: {ex.Message}")
+        End Try
+    End Sub
+    ' =========================
+    ' == EXEC DETAILS =========
+    ' =========================
+    Public Sub TWSConn_execDetails(reqId As Integer, contract As IBApi.Contract, execution As IBApi.Execution)
+        Try
+            OrderStateStore.OnExecDetails(contract, execution)
+        Catch ex As Exception
+            Debug.WriteLine($"execDetails route error: {ex.Message}")
+        End Try
     End Sub
 
+    ' =========================
+    ' == COMMISSION ===========
+    ' =========================
+    Public Sub TWSConn_commissionReport(report As IBApi.CommissionAndFeesReport)
+        Try
+            OrderStateStore.OnCommissionReport(report)
+        Catch ex As Exception
+            Debug.WriteLine($"commissionReport route error: {ex.Message}")
+        End Try
+    End Sub
     Public Sub TWSConn_pnlSingle(reqId As Integer, pos As Decimal, dailyPnL As Double, unrealizedPnL As Double, realizedPnL As Double, value As Double)
 
     End Sub
@@ -75,10 +112,19 @@ Public Module TWSEvents
     Public Sub TWSConn_errMsg2(id As Integer, errorTime As Long, errorCode As Integer, errorMsg As String, advancedOrderRejectJson As String)
         RaiseEvent ApiError(errorCode, errorMsg)
         Debug.Print($"ERROR: {errorMsg}")
+
+        If id > 0 Then
+            OnOrderError(id, Message)
+        End If
     End Sub
 
     Public Sub TWSConn_nextValidId(orderId As Integer)
         RaiseEvent NextValidId(orderId)
+        Try
+            OrderRouter.SeedNextValidId(orderId)
+        Catch ex As Exception
+            Debug.WriteLine($"nextValidId seed error: {ex.Message}")
+        End Try
     End Sub
 
     Public Sub TWSConn_updateAccountValue(key As String, value As String, currency As String, accountName As String)

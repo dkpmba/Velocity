@@ -1,4 +1,4 @@
-
+﻿
 Imports System.ComponentModel
 Imports Velocity.Core
 
@@ -67,12 +67,17 @@ Partial Class MainForm
             End If
         End If
 
-        If _ordersBinding Is Nothing Then
-            _ordersBinding = New BindingList(Of OrderRow)()
-            If dgvOrders IsNot Nothing AndAlso dgvOrders.DataSource Is Nothing Then
-                dgvOrders.AutoGenerateColumns = False
-                dgvOrders.DataSource = _ordersBinding
-            End If
+        'If _ordersBinding Is Nothing Then
+        '    _ordersBinding = New BindingList(Of OrderRow)()
+        '    If dgvOrders IsNot Nothing AndAlso dgvOrders.DataSource Is Nothing Then
+        '        dgvOrders.AutoGenerateColumns = False
+        '        dgvOrders.DataSource = _ordersBinding
+        '    End If
+        'End If
+        If dgvOrders IsNot Nothing Then
+            dgvOrders.AutoGenerateColumns = False
+            dgvOrders.DataSource = OrderStateStore.OrdersBinding   ' ← use the live list
+            BuildOrdersColumns(dgvOrders)                          ' keep your existing columns
         End If
 
         If _legsBinding Is Nothing Then
@@ -93,7 +98,7 @@ Partial Class MainForm
     End Sub
 
     Public Sub RefreshAllData()
-        ' Make sure bindings exist even if Init/BindAllGrids wasn�t called
+        ' Make sure bindings exist even if Init/BindAllGrids wasn’t called
         EnsureBindings()
 
         ' --- Symbols ---
@@ -237,7 +242,7 @@ Partial Class MainForm
         If _hbootPrereqSymbols Then Exit Sub   ' idempotent guard
         _hbootPrereqSymbols = True
 
-        ' (Optional) unhook symbol-ready detectors; we don�t need them after first success
+        ' (Optional) unhook symbol-ready detectors; we don’t need them after first success
         Try
             RemoveHandler dgvSymbols.DataBindingComplete, AddressOf dgvSymbols_DataBindingComplete
         Catch : End Try

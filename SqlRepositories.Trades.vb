@@ -15,9 +15,9 @@ Namespace Velocity.Core
         Public Function CreateTrade(t As Trade) As Long Implements ITradeRepository.CreateTrade
             Using conn = CType(_cf.CreateOpen(), SqlConnection)
                 Using cmd As New SqlCommand("
-INSERT INTO dbo.trades(symbol, structure, size, strike_mid, credit, status, start_time, atr3, ema_state, time_value, urgl, rgl, net_delta, net_gamma, net_theta)
-VALUES (@symbol, @structure, @size, @strike_mid, @credit, @status, SYSUTCDATETIME(), @atr3, @ema_state, @time_value, @urgl, @rgl, @net_delta, @net_gamma, @net_theta);
-SELECT CAST(SCOPE_IDENTITY() AS BIGINT);", conn)
+                    INSERT INTO dbo.trades(symbol, structure, size, strike_mid, credit, status, start_time, atr3, ema_state, time_value, urgl, rgl, net_delta, net_gamma, net_theta)
+                    VALUES (@symbol, @structure, @size, @strike_mid, @credit, @status, SYSUTCDATETIME(), @atr3, @ema_state, @time_value, @urgl, @rgl, @net_delta, @net_gamma, @net_theta);
+                    SELECT CAST(SCOPE_IDENTITY() AS BIGINT);", conn)
                     cmd.Parameters.AddWithValue("@symbol", t.Symbol)
                     cmd.Parameters.AddWithValue("@structure", t.[Structure])
                     cmd.Parameters.AddWithValue("@size", t.Size)
@@ -41,8 +41,8 @@ SELECT CAST(SCOPE_IDENTITY() AS BIGINT);", conn)
         Public Sub AddLeg(tid As Long, leg As TradeLeg) Implements ITradeRepository.AddLeg
             Using conn = CType(_cf.CreateOpen(), SqlConnection)
                 Using cmd As New SqlCommand("
-INSERT INTO dbo.trade_legs(tid, leg_id, cid, sectype, symbol, [right], strike, expiry, qty, avg_cost, mark, time_value, delta, gamma, theta, vega, exchange)
-VALUES(@tid, @leg_id, @cid, @sectype, @symbol, @right, @strike, @expiry, @qty, @avg_cost, @mark, @time_value, @delta, @gamma, @theta, @vega, @exchange);", conn)
+                    INSERT INTO dbo.trade_legs(tid, leg_id, cid, sectype, symbol, [right], strike, expiry, qty, avg_cost, mark, time_value, delta, gamma, theta, vega, exchange,mult)
+                    VALUES(@tid, @leg_id, @cid, @sectype, @symbol, @right, @strike, @expiry, @qty, @avg_cost, @mark, @time_value, @delta, @gamma, @theta, @vega, @exchange,@mult);", conn)
                     cmd.Parameters.AddWithValue("@tid", tid)
                     cmd.Parameters.AddWithValue("@leg_id", leg.LegID)
                     cmd.Parameters.AddWithValue("@cid", leg.CID)
@@ -59,8 +59,27 @@ VALUES(@tid, @leg_id, @cid, @sectype, @symbol, @right, @strike, @expiry, @qty, @
                     cmd.Parameters.AddWithValue("@gamma", leg.Gamma)
                     cmd.Parameters.AddWithValue("@theta", leg.Theta)
                     cmd.Parameters.AddWithValue("@vega", leg.Vega)
+                    cmd.Parameters.AddWithValue("@mult", leg.Mult)
                     cmd.Parameters.AddWithValue("@exchange", If(leg.Exchange, CType(DBNull.Value, Object)))
                     cmd.ExecuteNonQuery()
+
+                    Dim cid As Integer = CInt(leg.CID)  ' IB Contract.ConId is Integer
+                    Dim sec As String = If(String.IsNullOrWhiteSpace(leg.SecType), "FUT", leg.SecType)
+                    Dim sym As String = If(String.IsNullOrWhiteSpace(leg.Symbol), "NA", leg.Symbol)
+                    Dim mult As String = If(String.IsNullOrWhiteSpace(leg.Mult), 100, leg.Mult)
+                    Dim exg As String = If(String.IsNullOrWhiteSpace(leg.Exchange), "CME", leg.Exchange)
+
+                    Dim ct As New Contract With {
+                                .ConId = cid,
+                                .SecType = sec,
+                                .Exchange = exg,
+                                .Symbol = sym,
+                                .Multiplier = mult,
+                                .Currency = "USD",
+                                .IncludeExpired = False
+                            }
+
+                    If Not SqlSymbolRepository.dictContract.ContainsKey(cid) Then SqlSymbolRepository.dictContract(cid) = ct
                 End Using
             End Using
         End Sub
@@ -68,11 +87,11 @@ VALUES(@tid, @leg_id, @cid, @sectype, @symbol, @right, @strike, @expiry, @qty, @
         Public Sub UpdateTrade(t As Trade) Implements ITradeRepository.UpdateTrade
             Using conn = CType(_cf.CreateOpen(), SqlConnection)
                 Using cmd As New SqlCommand("
-UPDATE dbo.trades
-SET symbol=@symbol, structure=@structure, size=@size, strike_mid=@strike_mid, credit=@credit,
-    status=@status, last_update=SYSUTCDATETIME(), atr3=@atr3, ema_state=@ema_state, time_value=@time_value,
-    urgl=@urgl, rgl=@rgl, net_delta=@net_delta, net_gamma=@net_gamma, net_theta=@net_theta
-WHERE tid=@tid;", conn)
+                    UPDATE dbo.trades
+                    SET symbol=@symbol, structure=@structure, size=@size, strike_mid=@strike_mid, credit=@credit,
+                        status=@status, last_update=SYSUTCDATETIME(), atr3=@atr3, ema_state=@ema_state, time_value=@time_value,
+                        urgl=@urgl, rgl=@rgl, net_delta=@net_delta, net_gamma=@net_gamma, net_theta=@net_theta
+                    WHERE tid=@tid;", conn)
                     cmd.Parameters.AddWithValue("@tid", t.TID)
                     cmd.Parameters.AddWithValue("@symbol", t.Symbol)
                     cmd.Parameters.AddWithValue("@structure", t.[Structure])
@@ -96,10 +115,10 @@ WHERE tid=@tid;", conn)
         Public Sub UpdateLeg(leg As TradeLeg) Implements ITradeRepository.UpdateLeg
             Using conn = CType(_cf.CreateOpen(), SqlConnection)
                 Using cmd As New SqlCommand("
-UPDATE dbo.trade_legs
-SET cid=@cid, sectype=@sectype, symbol=@symbol, [right]=@right, strike=@strike, expiry=@expiry,
-    qty=@qty, avg_cost=@avg_cost, mark=@mark, time_value=@time_value, delta=@delta, gamma=@gamma, theta=@theta, vega=@vega, exchange=@exchange
-WHERE tid=@tid AND leg_id=@leg_id;", conn)
+                    UPDATE dbo.trade_legs
+                    SET cid=@cid, sectype=@sectype, symbol=@symbol, [right]=@right, strike=@strike, expiry=@expiry, mult=@mult,
+                        qty=@qty, avg_cost=@avg_cost, mark=@mark, time_value=@time_value, delta=@delta, gamma=@gamma, theta=@theta, vega=@vega, exchange=@exchange
+                    WHERE tid=@tid AND leg_id=@leg_id;", conn)
                     cmd.Parameters.AddWithValue("@tid", leg.TID)
                     cmd.Parameters.AddWithValue("@leg_id", leg.LegID)
                     cmd.Parameters.AddWithValue("@cid", leg.CID)
@@ -107,6 +126,7 @@ WHERE tid=@tid AND leg_id=@leg_id;", conn)
                     cmd.Parameters.AddWithValue("@symbol", leg.Symbol)
                     cmd.Parameters.AddWithValue("@right", If(leg.Right, CType(DBNull.Value, Object)))
                     cmd.Parameters.AddWithValue("@strike", leg.Strike)
+                    cmd.Parameters.AddWithValue("@mult", leg.Mult)
                     cmd.Parameters.AddWithValue("@expiry", If(leg.Expiry = Date.MinValue, CType(DBNull.Value, Object), leg.Expiry))
                     cmd.Parameters.AddWithValue("@qty", leg.Qty)
                     cmd.Parameters.AddWithValue("@avg_cost", leg.AvgCost)
@@ -179,9 +199,27 @@ WHERE tid=@tid AND leg_id=@leg_id;", conn)
                                 .Gamma = If(IsDBNull(r("gamma")), 0D, CDec(r("gamma"))),
                                 .Theta = If(IsDBNull(r("theta")), 0D, CDec(r("theta"))),
                                 .Vega = If(IsDBNull(r("vega")), 0D, CDec(r("vega"))),
-                                .Exchange = If(IsDBNull(r("exchange")), Nothing, CStr(r("exchange")))
+                                .Exchange = If(IsDBNull(r("exchange")), Nothing, CStr(r("exchange"))),
+                                .Mult = If(IsDBNull(r("mult")), Nothing, CStr(r("mult")))
                             }
                             list.Add(leg)
+                            Dim cid As Integer = CInt(leg.CID)  ' IB Contract.ConId is Integer
+                            Dim sec As String = If(String.IsNullOrWhiteSpace(leg.SecType), "FUT", leg.SecType)
+                            Dim sym As String = If(String.IsNullOrWhiteSpace(leg.Symbol), "NA", leg.Symbol)
+                            Dim mult As String = If(String.IsNullOrWhiteSpace(leg.Mult), 100, leg.Mult)
+                            Dim exg As String = If(String.IsNullOrWhiteSpace(leg.Exchange), "CME", leg.Exchange)
+
+                            Dim ct As New Contract With {
+                                .ConId = cid,
+                                .SecType = sec,
+                                .Exchange = exg,
+                                .Symbol = sym,
+                                .Multiplier = mult,
+                                .Currency = "USD",
+                                .IncludeExpired = False
+                            }
+
+                            If Not SqlSymbolRepository.dictContract.ContainsKey(cid) Then SqlSymbolRepository.dictContract(cid) = ct
                         End While
                     End Using
                 End Using

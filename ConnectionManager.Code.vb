@@ -108,6 +108,10 @@ Partial Class ConnectionManager
     End Sub
 
     Private Sub BtnSaveDb_Click(sender As Object, e As EventArgs)
+        SaveConnectionString()
+    End Sub
+
+    Private Sub SaveConnectionString()
         Dim cs = GetConnString()
         If String.IsNullOrWhiteSpace(cs) Then
             MessageBox.Show("Enter a SQL Server connection string first.")

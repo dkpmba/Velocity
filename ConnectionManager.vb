@@ -45,6 +45,8 @@ Public Partial Class ConnectionManager
             AddHandler TWSEvents.ApiError, AddressOf OnTwsError
             _twseventsHooked = True
         End If
+
+        SaveConnectionString()
     End Sub
     Private Sub AutoStartIfPossible()
         ' 1) Get a bootstrap connection string
@@ -388,5 +390,6 @@ Public Partial Class ConnectionManager
         Public Property ReqTimeout As Integer
         Public Property LogIbMessages As Boolean
     End Class
+
 
 End Class

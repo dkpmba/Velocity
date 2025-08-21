@@ -101,6 +101,7 @@ Namespace Velocity.Core
         Public Property Right As String ' C/P or LONG/SHORT for futures
         Public Property Strike As Decimal
         Public Property Expiry As Date
+        Public Property Mult As Decimal
         Public Property Qty As Integer
         Public Property AvgCost As Decimal
         Public Property Mark As Decimal

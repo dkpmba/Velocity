@@ -33,13 +33,17 @@ Namespace Velocity.Core
                             list.Add(row)
                             ' ----- Minimal IB contract for this ConId (SMART/STK/USD defaults) -----
                             Dim cid As Integer = CInt(row.CID)  ' IB Contract.ConId is Integer
-                            Dim sec As String = If(String.IsNullOrWhiteSpace(row.SecType), "STK", row.SecType)
-                            Dim exg As String = If(String.IsNullOrWhiteSpace(row.Exchange), "SMART", row.Exchange)
+                            Dim sec As String = If(String.IsNullOrWhiteSpace(row.SecType), "FUT", row.SecType)
+                            Dim sym As String = If(String.IsNullOrWhiteSpace(row.Symbol), "NA", row.Symbol)
+                            Dim mult As String = If(String.IsNullOrWhiteSpace(row.Mult), 100, row.Mult)
+                            Dim exg As String = If(String.IsNullOrWhiteSpace(row.Exchange), "CME", row.Exchange)
 
                             Dim ct As New Contract With {
                                 .ConId = cid,
                                 .SecType = sec,
                                 .Exchange = exg,
+                                .Symbol = sym,
+                                .Multiplier = mult,
                                 .Currency = "USD",
                                 .IncludeExpired = False
                             }

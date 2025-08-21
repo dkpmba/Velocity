@@ -14,6 +14,7 @@
   <ItemGroup>
     <EmbeddedResource Remove="AlertsActivity.GridInit.resx" />
     <EmbeddedResource Remove="ConnectionManager.Code.resx" />
+    <EmbeddedResource Remove="MainForm.DataBinding.resx" />
   </ItemGroup>
 
   <ItemGroup>
@@ -29,6 +30,7 @@
   <ItemGroup>
     <None Include="AlertsActivity.GridInit.resx" />
     <None Include="ConnectionManager.Code.resx" />
+    <None Include="MainForm.DataBinding.resx" />
   </ItemGroup>
 
   <ItemGroup>
