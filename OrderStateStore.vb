@@ -187,6 +187,9 @@ Module OrderStateStore
 
     ' openOrder: authoritative snapshot of a working order
     Public Sub OnOpenOrder(orderId As Integer, c As Contract, o As IBApi.Order, state As IBApi.OrderState)
+        ' Skip what-if previews so they don't appear in the Orders grid
+        If o IsNot Nothing AndAlso o.WhatIf Then Exit Sub
+
         Dim r As New OrderRow With {
             .OrderId = orderId,
             .PermId = CLng(o.PermId),

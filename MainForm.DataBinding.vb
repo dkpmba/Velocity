@@ -78,6 +78,7 @@ Partial Class MainForm
             dgvOrders.AutoGenerateColumns = False
             dgvOrders.DataSource = OrderStateStore.OrdersBinding   ' ← use the live list
             BuildOrdersColumns(dgvOrders)                          ' keep your existing columns
+            WireOrdersContextMenu()
         End If
 
         If _legsBinding Is Nothing Then
@@ -85,6 +86,7 @@ Partial Class MainForm
             If dgvMonitor IsNot Nothing AndAlso dgvMonitor.DataSource Is Nothing Then
                 dgvMonitor.AutoGenerateColumns = False
                 dgvMonitor.DataSource = _legsBinding
+                WireMonitorContextMenu()
             End If
         End If
     End Sub

@@ -75,6 +75,11 @@ Public Module TWSEvents
         Catch ex As Exception
             Debug.WriteLine($"openOrder route error: {ex.Message}")
         End Try
+
+        ' NEW: also feed the what-if preview broker
+        Try
+            MarginPreview.OnWhatIfOpenOrder(orderId, contract, order, orderState)
+        Catch : End Try
     End Sub
     ' =========================
     ' == EXEC DETAILS =========
@@ -122,8 +127,13 @@ Public Module TWSEvents
         RaiseEvent NextValidId(orderId)
         Try
             OrderRouter.SeedNextValidId(orderId)
+            ' Subscribe for any orders created outside this app, too
+            If TwsHost.Tws IsNot Nothing AndAlso TwsHost.Tws.ClientSocket IsNot Nothing Then
+                TwsHost.Tws.ClientSocket.reqAutoOpenOrders(True)
+                TwsHost.Tws.ClientSocket.reqOpenOrders()
+            End If
         Catch ex As Exception
-            Debug.WriteLine($"nextValidId seed error: {ex.Message}")
+            Debug.WriteLine($"nextValidId error: {ex.Message}")
         End Try
     End Sub
 
