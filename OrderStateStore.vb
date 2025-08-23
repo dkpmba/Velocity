@@ -3,6 +3,8 @@ Option Explicit On
 
 Imports System.ComponentModel
 Imports IBApi
+'Imports Velocity.Core
+
 
 ' =============================================================================
 ' OrderStateStore
@@ -28,6 +30,9 @@ Module OrderStateStore
         Public Property ParentId As Integer
 
         Public Property ConId As Integer
+        ' in OrderRow class
+        Public Property TradeId As Integer?
+
         Public Property SecType As String
         Public Property Symbol As String
 
@@ -89,6 +94,8 @@ Module OrderStateStore
     Private ReadOnly _byOrderId As New Dictionary(Of Integer, OrderRow)()
     Private ReadOnly _byPermId As New Dictionary(Of Long, OrderRow)()
     Private ReadOnly _orderIdByExecId As New Dictionary(Of String, Integer)(StringComparer.Ordinal)
+    ' Cache last-known fill rows so we can update commissions later
+    Private ReadOnly _fillCache As New Dictionary(Of String, Velocity.Core.FillRow)(StringComparer.Ordinal)
 
     Public ReadOnly OrdersBinding As New BindingList(Of OrderRow)()
 
@@ -119,7 +126,7 @@ Module OrderStateStore
     ' ============================================
     ' Local pre-submit snapshot (called by Router)
     ' ============================================
-    Public Sub LocalSubmitSnapshot(contract As Contract, order As IBApi.Order, note As String, source As String)
+    Public Sub LocalSubmitSnapshot(contract As Contract, order As IBApi.Order, note As String, source As String, Optional tradeId As Integer? = Nothing)
         Dim r As New OrderRow With {
             .OrderId = order.OrderId,
             .PermId = CLng(order.PermId),
@@ -142,7 +149,8 @@ Module OrderStateStore
             .RealizedPnl = 0,
             .Source = source,
             .Note = note,
-            .LastUpdateUtc = Date.UtcNow
+            .LastUpdateUtc = Date.UtcNow,
+            .TradeId = tradeId
         }
 
         ' Grid-facing aliases & extras
@@ -155,6 +163,8 @@ Module OrderStateStore
         r.Remaining = r.TotalQty
 
         Upsert(r)
+        PersistOrderRowSafe(r)
+
     End Sub
 
     Public Sub MarkPendingChange(orderId As Integer, note As String)
@@ -216,8 +226,14 @@ Module OrderStateStore
         r.Price = r.LmtPrice
         r.Fills = 0
         r.Remaining = r.Qty
+        Dim existing As OrderRow = Nothing
+        If TryGet(orderId, existing) AndAlso existing IsNot Nothing AndAlso existing.TradeId.HasValue Then
+            r.TradeId = existing.TradeId
+        End If
 
         Upsert(r)
+        PersistOrderRowSafe(r)
+
     End Sub
 
     ' orderStatus: updates live status + fill progress
@@ -262,6 +278,9 @@ Module OrderStateStore
             r.Price = r.LmtPrice
             r.Time = r.LastUpdateUtc
         End SyncLock
+        Dim r2 As OrderRow = Nothing
+        If TryGet(orderId, r2) Then PersistOrderRowSafe(r2)
+
     End Sub
 
     ' execDetails: attach execution effects to the owning order
@@ -306,7 +325,50 @@ Module OrderStateStore
             r.Qty = Math.Max(r.TotalQty, r.FilledQty + r.LeavesQty)
             r.Price = r.LmtPrice
             r.Time = r.LastUpdateUtc
+
+            ' === Realized P&L and positions ===
+            Dim realizedDelta As Double = 0
+            Try
+                realizedDelta = PositionStore.OnExecution(c, r.Side, shares, px)
+            Catch ex As Exception
+                Debug.WriteLine("PositionStore.OnExecution error: " & ex.Message)
+            End Try
+
+            ' Push realized delta to Trade PnL if we know the trade
+            If realizedDelta <> 0 AndAlso r.TradeId.HasValue AndAlso r.TradeId.Value > 0 Then
+                Try
+                    TradePnLManager.AddRealized(r.TradeId.Value, realizedDelta)
+                Catch ex As Exception
+                    Debug.WriteLine("TradePnLManager.AddRealized error: " & ex.Message)
+                End Try
+            End If
+
         End SyncLock
+        ' Persist the fill row (commission will be 0 for now; updated later)
+        Try
+            Dim fr As New Velocity.Core.FillRow With {
+        .ExecId = exec.ExecId,
+        .OID = oid,
+        .TID = Nothing,
+        .Time = ParseExecTime(exec.Time),
+        .Qty = shares,
+        .Price = CDec(px),
+        .Commission = 0D,
+        .Fees = 0D,
+        .Exchange = exec.Exchange
+    }
+            _fillCache(exec.ExecId) = fr
+            If AppServices.Orders IsNot Nothing Then
+                AppServices.Orders.SaveFill(fr)
+            End If
+        Catch ex As Exception
+            Debug.WriteLine("SaveFill failed: " & ex.Message)
+        End Try
+
+        ' Also persist the owning order snapshot
+        Dim r2 As OrderRow = Nothing
+        If TryGet(oid, r2) Then PersistOrderRowSafe(r2)
+
     End Sub
 
     ' New IB API: Commission + Fees
@@ -331,6 +393,39 @@ Module OrderStateStore
                 End If
             End If
         End SyncLock
+
+        ' Update commission in DB for that exec, if we cached its fill
+        Try
+            'Dim execId As String = report.ExecId
+            If Not String.IsNullOrWhiteSpace(execId) Then
+                Dim fr As Velocity.Core.FillRow = Nothing
+                If _fillCache.TryGetValue(execId, fr) Then
+                    fr.Commission = CDec(report.CommissionAndFees)
+                    ' (We don't have separate fees from this report; leave fr.Fees = 0D)
+                    If AppServices.Orders IsNot Nothing Then
+                        AppServices.Orders.SaveFill(fr)
+                    End If
+                End If
+            End If
+        Catch ex As Exception
+            Debug.WriteLine("SaveFill (commission update) failed: " & ex.Message)
+        End Try
+        ' Also attribute commissions to trade-level RGL (reduce)
+        Try
+            'Dim execId As String = report.ExecId
+            If Not String.IsNullOrWhiteSpace(execId) Then
+                Dim oid As Integer = 0
+                If _orderIdByExecId.TryGetValue(execId, oid) Then
+                    Dim r As OrderRow = Nothing
+                    If _byOrderId.TryGetValue(oid, r) AndAlso r IsNot Nothing AndAlso r.TradeId.HasValue Then
+                        TradePnLManager.AddCommission(r.TradeId.Value, report.CommissionAndFees)
+                    End If
+                End If
+            End If
+        Catch ex As Exception
+            Debug.WriteLine("TradePnLManager.AddCommission error: " & ex.Message)
+        End Try
+
     End Sub
 
     ' Add IB error hook (optional)
@@ -342,6 +437,8 @@ Module OrderStateStore
                 r.Error = message
                 r.LastUpdateUtc = Date.UtcNow
                 r.Time = r.LastUpdateUtc
+                PersistOrderRowSafe(r)
+
             End If
         End SyncLock
     End Sub
@@ -449,5 +546,49 @@ Module OrderStateStore
         Return ((prevQty * prevAvg) + (addQty * addPx)) / tot
     End Function
 
+    ' Map in-memory order → DB row
+    Private Function MapToDbOrder(r As OrderRow) As Velocity.Core.OrderRow
+        Return New Velocity.Core.OrderRow With {
+        .OID = r.OrderId,
+        .TID = Nothing,                       ' (trade id, not available here)
+        .Account = r.Account,
+        .Symbol = r.Symbol,
+        .Side = r.Side,
+        .SecType = r.SecType,
+        .Qty = Math.Max(r.TotalQty, Math.Max(r.FilledQty + r.LeavesQty, r.Qty)),
+        .OrderType = r.OrderType,
+        .Price = CDec(If(r.LmtPrice.HasValue, r.LmtPrice.Value, 0)),
+        .Status = r.Status,
+        .Fills = r.FilledQty,
+        .Remaining = r.LeavesQty,
+        .Exchange = r.Exchange,
+        .Error = r.Error,
+        .Time = If(r.Time = Date.MinValue, Date.UtcNow, r.Time)
+    }
+    End Function
+
+    Private Sub PersistOrderRowSafe(r As OrderRow)
+        Try
+            If AppServices.Orders IsNot Nothing Then
+                AppServices.Orders.SaveOrder(MapToDbOrder(r))
+            End If
+        Catch ex As Exception
+            Debug.WriteLine("SaveOrder failed: " & ex.Message)
+        End Try
+    End Sub
+
+    Private Function ParseExecTime(s As String) As Date
+        If String.IsNullOrWhiteSpace(s) Then Return Date.UtcNow
+        Dim dt As DateTime
+        Dim fmts = {"yyyyMMdd  HH:mm:ss", "yyyyMMdd-HH:mm:ss", "yyyy-MM-dd HH:mm:ss", "yyyyMMdd HH:mm:ss"}
+        For Each f In fmts
+            If DateTime.TryParseExact(s.Trim(), f, Globalization.CultureInfo.InvariantCulture,
+                                  Globalization.DateTimeStyles.AssumeLocal, dt) Then
+                Return dt
+            End If
+        Next
+        If DateTime.TryParse(s, dt) Then Return dt
+        Return Date.UtcNow
+    End Function
 
 End Module

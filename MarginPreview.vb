@@ -10,7 +10,9 @@ Module MarginPreview
         Public Property Contract As Contract
         Public Property RealOrder As IBApi.Order
         Public Property Note As String
+        Public Property TradeId As Integer?
     End Class
+
 
     ' Map preview (what-if) orderId -> plan to execute if approved
     Private ReadOnly _pending As New Dictionary(Of Integer, PreviewPlan)()
@@ -20,13 +22,14 @@ Module MarginPreview
     ''' we will prompt the user and, if approved and no deficiency warning, place the real order.
     ''' </summary>
     Public Sub PlaceWithMarginCheck(contract As Contract,
-                                    side As String,
-                                    qty As Integer,
-                                    orderType As String,
-                                    lmt As Double,
-                                    tif As String,
-                                    account As String,
-                                    note As String)
+                                side As String,
+                                qty As Integer,
+                                orderType As String,
+                                lmt As Double,
+                                tif As String,
+                                account As String,
+                                note As String,
+                                Optional tradeId As Integer? = Nothing)
 
         If TwsHost.Tws Is Nothing OrElse TwsHost.Tws.ClientSocket Is Nothing Then
             Throw New InvalidOperationException("TWS is not connected.")
@@ -63,7 +66,8 @@ Module MarginPreview
         _pending(previewId) = New PreviewPlan With {
             .Contract = contract,
             .RealOrder = realOrder,
-            .Note = note
+            .Note = note,
+            .TradeId = tradeId
         }
 
         ' 3) Send WHAT-IF to IB
@@ -120,7 +124,7 @@ Module MarginPreview
         Dim res = MessageBox.Show(msg & vbCrLf & vbCrLf & "Proceed to place the order?",
                               "Margin Check", MessageBoxButtons.YesNo, MessageBoxIcon.Question)
         If res = DialogResult.Yes Then
-            OrderRouter.Place(plan.Contract, plan.RealOrder, plan.Note, source:="dgvMonitor")
+            OrderRouter.Place(plan.Contract, plan.RealOrder, plan.Note, source:="dgvMonitor", tradeId:=plan.TradeId)
         End If
 
         _pending.Remove(orderId)

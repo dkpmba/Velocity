@@ -60,7 +60,7 @@ Module OrderRouter
     ''' Place a new order. Will compute an orderId if not provided (order.OrderId=0).
     ''' Records a local "PendingSubmit" snapshot in OrderStateStore before sending.
     ''' </summary>
-    Public Sub Place(contract As Contract, order As IBApi.Order, note As String, Optional source As String = "UI")
+    Public Sub Place(contract As Contract, order As IBApi.Order, note As String, Optional source As String = "UI", Optional tradeId As Integer? = Nothing)
         If TwsHost.Tws Is Nothing OrElse TwsHost.Tws.ClientSocket Is Nothing Then
             Throw New InvalidOperationException("TWS is not connected.")
         End If

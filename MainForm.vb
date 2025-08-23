@@ -1,4 +1,4 @@
-﻿Public Partial Class MainForm
+﻿Partial Public Class MainForm
     Inherits Form
 
     Private _twseventsHooked As Boolean = False

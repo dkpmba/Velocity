@@ -260,6 +260,49 @@ Namespace Velocity.Core
             Return list
         End Function
 
+        ' Add/accumulate delta into dbo.trades.rgl
+        Public Sub UpdateRglDelta(tid As Integer, delta As Decimal) _
+        Implements ITradeRepository.UpdateRglDelta   ' <-- remove Implements if no interface
+
+            If tid <= 0 OrElse delta = 0D Then Exit Sub
+
+            Using conn = CType(_cf.CreateOpen(), SqlConnection)
+                Using cmd As New SqlCommand("
+                    UPDATE dbo.trades
+                    SET rgl = ISNULL(rgl, 0) + @delta,
+                        updated_utc = SYSUTCDATETIME()
+                    WHERE tid = @tid;", conn)
+
+                    cmd.Parameters.AddWithValue("@tid", tid)
+                    cmd.Parameters.AddWithValue("@delta", delta)
+
+                    Dim n = cmd.ExecuteNonQuery()
+                    ' Optional: if n = 0 then row not found — decide if you want to INSERT or just ignore.
+                End Using
+            End Using
+        End Sub
+
+        ' Set absolute RGL value in dbo.trades.rgl
+        Public Sub UpdateRgl(tid As Integer, newRgl As Decimal) _
+        Implements ITradeRepository.UpdateRgl   ' <-- remove Implements if no interface
+
+            If tid <= 0 Then Exit Sub
+
+            Using conn = CType(_cf.CreateOpen(), SqlConnection)
+                Using cmd As New SqlCommand("
+                    UPDATE dbo.trades
+                    SET rgl = @rgl,
+                        updated_utc = SYSUTCDATETIME()
+                    WHERE tid = @tid;", conn)
+
+                    cmd.Parameters.AddWithValue("@tid", tid)
+                    cmd.Parameters.AddWithValue("@rgl", newRgl)
+
+                    Dim n = cmd.ExecuteNonQuery()
+                    ' Optional: handle n = 0 similarly
+                End Using
+            End Using
+        End Sub
     End Class
 
 End Namespace

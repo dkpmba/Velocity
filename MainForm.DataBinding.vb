@@ -23,6 +23,8 @@ Partial Class MainForm
 
         BindAllGrids()
         RefreshAllData()
+        WireTradeRgl()
+
     End Sub
 
     Private Sub BindAllGrids()

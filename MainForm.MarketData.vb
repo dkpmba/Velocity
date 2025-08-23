@@ -35,6 +35,8 @@ Partial Class MainForm
     Private Shared ReadOnly _mdTickerByConId As New Dictionary(Of Integer, Integer)() ' conId -> tickerId
     Private Shared ReadOnly _mdConIdByTicker As New Dictionary(Of Integer, Integer)() ' tickerId -> conId
     Private Shared ReadOnly _mdQuoteByConId As New Dictionary(Of Integer, MdQuote)()
+    Private _tradeRglWired As Boolean = False
+
 
 
     ''' <summary>Get a unique ticker id for reqMktData.</summary>
@@ -270,6 +272,8 @@ Partial Class MainForm
             UpdateGridQuote(dgvSymbols, cid, q)
             UpdateGridQuote(dgvMonitor, cid, q)
             UpdateGridQuote(DesignForm.dgvDesign, cid, q)
+            UiQuotesTimer_Tick_UpdateUrgl()
+            UpdateUrglForTrades()
         Next
     End Sub
 
@@ -311,6 +315,146 @@ Partial Class MainForm
         If idxLast >= 0 Then rowHit.Cells(idxLast).Value = sLast
         If idxMid >= 0 Then rowHit.Cells(idxMid).Value = sMid
     End Sub
+
+    Private Sub UiQuotesTimer_Tick_UpdateUrgl()
+        If dgvMonitor IsNot Nothing AndAlso dgvMonitor.Rows.Count > 0 Then
+            For Each r As DataGridViewRow In dgvMonitor.Rows
+                If Not r.IsNewRow Then UpdateUrglForMonitorRow(r)
+            Next
+        End If
+    End Sub
+
+    ' Signed leg qty from row (tries “Qty/Quantity/OpenQty/Position/Pos/Lots”; uses “Side” if sign is missing)
+    Private Function GetRowSignedQty(row As DataGridViewRow) As Integer
+        If row Is Nothing Then Return 0
+        Dim qtyNames = New String() {"Qty", "Quantity", "OpenQty", "Position", "Pos", "Lots"}
+        Dim val As Integer = 0
+        For Each nm In qtyNames
+            Dim idx = HBoot_GetColumnIndexByName(dgvMonitor, nm)
+            If idx >= 0 Then
+                Dim cell = row.Cells(idx)
+                If cell IsNot Nothing AndAlso cell.Value IsNot Nothing AndAlso Integer.TryParse(cell.Value.ToString(), val) Then
+                    Exit For
+                End If
+            End If
+        Next
+        ' If sign is unclear, try “Side”
+        If val > 0 Then
+            Dim sideIdx = HBoot_GetColumnIndexByName(dgvMonitor, "Side")
+            If sideIdx >= 0 Then
+                Dim side = CStr(dgvMonitor.Rows(row.Index).Cells(sideIdx).Value)?.Trim().ToUpperInvariant()
+                If side = "SELL" OrElse side = "SHORT" Then val = -Math.Abs(val)
+            End If
+        End If
+        Return val
+    End Function
+
+    ' Update URGL for one monitor row (writes to “URGL” column if present, else updates bound object property if it exists)
+    Private Sub UpdateUrglForMonitorRow(row As DataGridViewRow)
+        If row Is Nothing Then Exit Sub
+        Dim conId As Integer = ExtractConIdFromRow(row)
+        If conId <= 0 Then Exit Sub
+
+        ' mark: prefer Mid, then Last
+        Dim mark As Double = GetMark(conId)
+        If mark <= 0 Then Exit Sub
+
+        ' position snapshot
+        Dim snap As PositionStore.PositionSnap = Nothing
+        If Not PositionStore.TryGet(conId, snap) OrElse snap Is Nothing Then Exit Sub
+
+        ' leg signed qty (if your monitor qty is signed, this will keep sign; otherwise side will fix it)
+        Dim legQty As Integer = GetRowSignedQty(row)
+        If legQty = 0 Then Exit Sub
+
+        ' per-leg URGL using account-level avg cost (good approximation when conId is unique to a trade)
+        Dim urgl As Double = (mark - snap.AvgCost) * legQty * snap.Multiplier
+
+        ' write to grid cell if present
+        Dim urglIdx = HBoot_GetColumnIndexByName(dgvMonitor, "URGL")
+        If urglIdx >= 0 Then
+            row.Cells(urglIdx).Value = urgl
+        Else
+            ' or update bound object property "URGL" if it exists
+            Dim item = row.DataBoundItem
+            If item IsNot Nothing Then
+                Dim p = item.GetType().GetProperty("URGL")
+                If p IsNot Nothing AndAlso p.CanWrite Then
+                    p.SetValue(item, urgl, Nothing)
+                    ' if you keep a BindingList(Of TradeLeg), you may need to ResetItem on its index
+                End If
+            End If
+        End If
+    End Sub
+
+    ' Sum per-leg URGLs for each TID and write into dgvTrades "URGL"
+    Private Sub UpdateUrglForTrades()
+        If dgvTrades Is Nothing OrElse dgvMonitor Is Nothing Then Exit Sub
+
+        ' Build TID -> URGL sum from monitor rows
+        Dim urglByTid As New Dictionary(Of Integer, Double)()
+        For Each r As DataGridViewRow In dgvMonitor.Rows
+            If r.IsNewRow Then Continue For
+            ' TID column name candidates
+            Dim tidIdx = HBoot_GetColumnIndexByName(dgvMonitor, "TID")
+            If tidIdx < 0 Then tidIdx = HBoot_GetColumnIndexByName(dgvMonitor, "TradeId")
+            If tidIdx < 0 Then Continue For
+
+            Dim tidObj = r.Cells(tidIdx).Value
+            Dim tid As Integer
+            If tidObj Is Nothing OrElse Not Integer.TryParse(tidObj.ToString(), tid) OrElse tid <= 0 Then Continue For
+
+            ' If the row already has URGL cell filled by UpdateUrglForMonitorRow, reuse it; otherwise compute now
+            Dim urglVal As Double
+            Dim urglIdx = HBoot_GetColumnIndexByName(dgvMonitor, "URGL")
+            If urglIdx >= 0 AndAlso r.Cells(urglIdx).Value IsNot Nothing AndAlso Double.TryParse(r.Cells(urglIdx).Value.ToString(), urglVal) Then
+                ' ok
+            Else
+                ' compute inline (same as monitor helper)
+                Dim conId As Integer = ExtractConIdFromRow(r)
+                Dim mark As Double = GetMark(conId)
+                Dim snap As PositionStore.PositionSnap = Nothing
+                If mark > 0 AndAlso PositionStore.TryGet(conId, snap) AndAlso snap IsNot Nothing Then
+                    Dim legQty As Integer = GetRowSignedQty(r)
+                    urglVal = (mark - snap.AvgCost) * legQty * snap.Multiplier
+                Else
+                    urglVal = 0
+                End If
+            End If
+
+            urglByTid(tid) = If(urglByTid.ContainsKey(tid), urglByTid(tid) + urglVal, urglVal)
+        Next
+
+        ' Write totals into dgvTrades "URGL"
+        Dim urglTradeIdx = HBoot_GetColumnIndexByName(dgvTrades, "URGL")
+        For Each tr As DataGridViewRow In dgvTrades.Rows
+            If tr.IsNewRow Then Continue For
+            Dim tidIdx = HBoot_GetColumnIndexByName(dgvTrades, "TID")
+            If tidIdx < 0 Then tidIdx = HBoot_GetColumnIndexByName(dgvTrades, "TradeId")
+            If tidIdx < 0 Then Continue For
+
+            Dim tidObj = tr.Cells(tidIdx).Value
+            Dim tid As Integer
+            If tidObj Is Nothing OrElse Not Integer.TryParse(tidObj.ToString(), tid) Then Continue For
+
+            Dim tot As Double = 0
+            If urglByTid.TryGetValue(tid, tot) Then
+                If urglTradeIdx >= 0 Then
+                    tr.Cells(urglTradeIdx).Value = tot
+                Else
+                    ' or push into bound Trade object property "URGL"
+                    Dim item = tr.DataBoundItem
+                    If item IsNot Nothing Then
+                        Dim p = item.GetType().GetProperty("URGL")
+                        If p IsNot Nothing AndAlso p.CanWrite Then
+                            p.SetValue(item, tot, Nothing)
+                        End If
+                    End If
+                End If
+            End If
+        Next
+    End Sub
+
 
 #End Region
 

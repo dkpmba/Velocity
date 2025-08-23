@@ -30,6 +30,11 @@ Namespace Velocity.Core
         Function GetTrade(tid As Long) As Trade
         Function GetTradeLegs(tid As Long) As IEnumerable(Of TradeLeg)
         Function GetOpenTrades() As IEnumerable(Of Trade)
+        ' Adds delta to current RGL
+        Sub UpdateRglDelta(tid As Integer, delta As Decimal)
+
+        ' Sets absolute RGL value
+        Sub UpdateRgl(tid As Integer, newRgl As Decimal)
     End Interface
 
     Public Interface IOrderRepository

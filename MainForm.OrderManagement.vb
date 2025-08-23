@@ -445,25 +445,96 @@
     ' Build a LMT near bid/ask, then run a margin "what-if" preview before placing
     Private Sub Monitor_SendWithMarginCheck(conId As Integer, side As String, qty As Integer)
         Dim c As IBApi.Contract = ContractBuilder.FromConId(conId)
-
-        ' Determine a reasonable limit: bid for SELL, ask for BUY (fallback to mid/last)
-        Dim useMid As Boolean = False
-        Dim lmt As Double = DetermineLimitPrice(conId, side, useMid)
+        Dim lmt As Double = DetermineLimitPrice(conId, side, useMid:=False)
         Dim inc = GetIncrementFromSymbols(conId)
         If inc > 0 Then lmt = RoundToIncrement(lmt, inc)
         If lmt <= 0 Then
             AppendAlert("No market price available to compute limit.", "WARN") : Exit Sub
         End If
 
-        ' Pre-trade risk (basic checks)
         Dim risk = PreTradeRisk.Validate(conId, side, qty, "LMT", lmt, Nothing)
         If Not risk.ok Then
             AppendAlert("Risk block: " & risk.reason, "WARN") : Exit Sub
         End If
 
-        ' Margin preview → user confirmation → place real order
-        MarginPreview.PlaceWithMarginCheck(c, side, qty, "LMT", lmt, tif:="DAY", account:=Nothing,
-                                       note:=$"dgvMonitor {side} {qty} LMT@{lmt}")
+        Dim tid As Integer = Monitor_TradeId()
+
+        MarginPreview.PlaceWithMarginCheck(
+        contract:=c,
+        side:=side,
+        qty:=qty,
+        orderType:="LMT",
+        lmt:=lmt,
+        tif:="DAY",
+        account:=Nothing,
+        note:=$"dgvMonitor {side} {qty} LMT@{lmt}",
+        tradeId:=If(tid > 0, CType(tid, Integer?), Nothing)
+    )
+    End Sub
+
+
+    Private Function Monitor_TradeId() As Integer
+        If dgvMonitor Is Nothing OrElse dgvMonitor.CurrentRow Is Nothing Then Return 0
+        ' Try common column names
+        For Each nm In New String() {"TID", "TradeId", "TradeID"}
+            Dim idx = HBoot_GetColumnIndexByName(dgvMonitor, nm)
+            If idx >= 0 Then
+                Dim v = dgvMonitor.Rows(dgvMonitor.CurrentRow.Index).Cells(idx).Value
+                Dim n As Integer
+                If v IsNot Nothing AndAlso Integer.TryParse(v.ToString(), n) Then Return n
+            End If
+        Next
+        ' Try DataBoundItem via reflection
+        Dim item = dgvMonitor.CurrentRow.DataBoundItem
+        If item IsNot Nothing Then
+            Dim p = item.GetType().GetProperty("TID") : If p Is Nothing Then p = item.GetType().GetProperty("TradeId")
+            If p IsNot Nothing Then
+                Dim v = p.GetValue(item, Nothing)
+                Dim n As Integer
+                If v IsNot Nothing AndAlso Integer.TryParse(v.ToString(), n) Then Return n
+            End If
+        End If
+        Return 0
+    End Function
+
+    Private Sub WireTradeRgl()
+        If _tradeRglWired Then Exit Sub
+        AddHandler TradePnLManager.TradeRglChanged, AddressOf OnTradeRglChanged
+        _tradeRglWired = True
+    End Sub
+
+
+    Private Sub OnTradeRglChanged(tradeId As Integer, newRgl As Double, delta As Double)
+        ' 1) Update dgvTrades row (assuming your Trade object has a property "RGL" and "TID")
+        If _tradesBinding IsNot Nothing Then
+            For i = 0 To _tradesBinding.Count - 1
+                Dim t = _tradesBinding(i)
+                Dim tidProp = t.GetType().GetProperty("TID")
+                If tidProp IsNot Nothing Then
+                    Dim tidVal = tidProp.GetValue(t, Nothing)
+                    If tidVal IsNot Nothing AndAlso CInt(tidVal) = tradeId Then
+                        Dim rglProp = t.GetType().GetProperty("RGL")
+                        If rglProp IsNot Nothing Then
+                            Dim cur = 0D
+                            Dim tmp = rglProp.GetValue(t, Nothing)
+                            If tmp IsNot Nothing Then Decimal.TryParse(tmp.ToString(), cur)
+                            rglProp.SetValue(t, CDec(newRgl))
+                            _tradesBinding.ResetItem(i)
+                        End If
+                        Exit For
+                    End If
+                End If
+            Next
+        End If
+
+        ' 2) Persist to DB (uncomment and adjust to your repo signature)
+        Try
+            If Global.AppServices.Trades IsNot Nothing Then
+                Global.AppServices.Trades.UpdateRglDelta(tradeId, CDec(delta))
+            End If
+        Catch ex As Exception
+            AppendAlert("Persist RGL failed: " & ex.Message, "ERROR")
+        End Try
     End Sub
 
 End Class
