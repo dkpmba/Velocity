@@ -303,6 +303,25 @@ Namespace Velocity.Core
                 End Using
             End Using
         End Sub
+
+        Public Sub CloseTrade(tid As Integer, finalRgl As Decimal) Implements ITradeRepository.CloseTrade
+
+            If tid <= 0 Then Exit Sub
+            Using conn = CType(_cf.CreateOpen(), SqlConnection)
+                Using cmd As New SqlCommand("
+                    UPDATE dbo.trades
+                    SET status = 'Closed',
+                        rgl = @rgl,
+                        closed_utc = SYSUTCDATETIME(),
+                        updated_utc = SYSUTCDATETIME()
+                    WHERE tid = @tid;", conn)
+                    cmd.Parameters.AddWithValue("@tid", tid)
+                    cmd.Parameters.AddWithValue("@rgl", finalRgl)
+                    cmd.ExecuteNonQuery()
+                End Using
+            End Using
+        End Sub
+
     End Class
 
 End Namespace

@@ -230,6 +230,11 @@
             EnsureOpenLegSubscriptions()     ' subscribes all open option CIDs in dgvMonitor
             InitBarFlushTimer()
             InitQuotesUiTimer()
+            ' Seed lifecycle now that grids are populated
+            SeedTradeExposureFromMonitor()
+
+            ' Start daily EOD IV capture
+            EodIvCapture.Start()
         Catch ex As Exception
             Debug.WriteLine($"Market subs error: {ex.Message}")
         End Try
@@ -296,6 +301,35 @@
         Catch
             ' ignore — label may not exist in some forms/layouts
         End Try
+    End Sub
+
+    Private Sub SeedTradeExposureFromMonitor()
+        If dgvMonitor Is Nothing OrElse dgvMonitor.Rows.Count = 0 Then Exit Sub
+
+        Dim exposures As New Dictionary(Of Integer, Integer)
+        For Each r As DataGridViewRow In dgvMonitor.Rows
+            If r.IsNewRow Then Continue For
+            Dim tid As Integer = Monitor_TradeId()
+            If tid <= 0 Then Continue For
+            Dim qty As Integer = GetMonitorPositionQty(r) ' your helper returns signed/unsigned; we fix sign below
+            If qty = 0 Then Continue For
+
+            ' Ensure sign via "Side" if needed
+            Dim sideIdx = HBoot_GetColumnIndexByName(dgvMonitor, "Side")
+            If sideIdx >= 0 Then
+                Dim side = CStr(r.Cells(sideIdx).Value)?.Trim().ToUpperInvariant()
+                If side = "SELL" OrElse side = "SHORT" Then qty = -Math.Abs(qty) Else qty = Math.Abs(qty)
+            End If
+
+            exposures(tid) = If(exposures.ContainsKey(tid), exposures(tid) + qty, qty)
+        Next
+
+        For Each kv In exposures
+            TradeLifecycleManager.SetExposure(kv.Key, kv.Value)
+        Next
+
+        ' Also build working-orders count once
+        TradeLifecycleManager.RecomputeWorkingFrom(OrderStateStore.OrdersBinding)
     End Sub
 
 #End Region

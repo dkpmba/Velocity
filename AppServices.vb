@@ -14,6 +14,7 @@ Module AppServices
     Public Alerts As IAlertRepository
     Public Activity As IActivityRepository
     Public Settings As ISettingsRepository
+    Public Property OptionIv As IOptionIvRepository
 
     Public Sub Initialize(cs As String)
         ConnectionString = cs

@@ -24,6 +24,7 @@ Partial Class MainForm
         BindAllGrids()
         RefreshAllData()
         WireTradeRgl()
+        WireLifecycleAndEod()
 
     End Sub
 
@@ -268,6 +269,69 @@ Partial Class MainForm
 
         _hbootStarted = True
         HBoot_Start()   ' calls into the Manager-Orchestrated boot you already implemented
+    End Sub
+
+    '''Subscribe to trade lifecycle + EOD IV events (wire once, e.g., in your Init/Load)
+    '''
+    Private _lifecycleWired As Boolean = False
+    Private _eodIvWired As Boolean = False
+
+    Private Sub WireLifecycleAndEod()
+        If Not _lifecycleWired Then
+            AddHandler TradeLifecycleManager.TradeClosed, AddressOf OnTradeClosed
+            _lifecycleWired = True
+        End If
+        If Not _eodIvWired Then
+            AddHandler EodIvCapture.EodIvCaptured, AddressOf OnEodIvCaptured
+            _eodIvWired = True
+        End If
+    End Sub
+
+    ' Trade closed → persist status/rgl and update UI
+    Private Sub OnTradeClosed(tradeId As Integer, finalRgl As Double)
+        AppendAlert($"Trade #{tradeId} closed. Final RGL={finalRgl:N2}", "INFO")
+
+        ' Persist to DB (add method to your repo as shown below)
+        Try
+            If Global.AppServices.Trades IsNot Nothing Then
+                Global.AppServices.Trades.CloseTrade(tradeId, CDec(finalRgl))
+            End If
+        Catch ex As Exception
+            AppendAlert("CloseTrade persist failed: " & ex.Message, "ERROR")
+        End Try
+
+        ' Update dgvTrades row (Status, RGL, Closed time if you show it)
+        If dgvTrades IsNot Nothing Then
+            For Each row As DataGridViewRow In dgvTrades.Rows
+                If row.IsNewRow Then Continue For
+                Dim tidIdx = HBoot_GetColumnIndexByName(dgvTrades, "TID")
+                If tidIdx < 0 Then tidIdx = HBoot_GetColumnIndexByName(dgvTrades, "TradeId")
+                If tidIdx < 0 Then Exit For
+                Dim tidObj = row.Cells(tidIdx).Value
+                Dim tid As Integer
+                If tidObj IsNot Nothing AndAlso Integer.TryParse(tidObj.ToString(), tid) AndAlso tid = tradeId Then
+                    Dim statusIdx = HBoot_GetColumnIndexByName(dgvTrades, "Status")
+                    If statusIdx >= 0 Then row.Cells(statusIdx).Value = "Closed"
+                    Dim rglIdx = HBoot_GetColumnIndexByName(dgvTrades, "RGL")
+                    If rglIdx >= 0 Then row.Cells(rglIdx).Value = finalRgl
+                    Exit For
+                End If
+            Next
+        End If
+    End Sub
+
+    ' EOD IV captured → persist (create repo or log)
+    Private Sub OnEodIvCaptured(conId As Integer, iv As Double, asOfUtc As Date)
+        AppendAlert($"EOD IV captured: conId={conId}, IV={iv:0.0000}", "INFO")
+
+        ' Optional: persist if you add Option IV repository; else comment out
+        Try
+            If Global.AppServices.OptionIv IsNot Nothing Then
+                Global.AppServices.OptionIv.UpsertEod(conId, CDec(iv), asOfUtc)
+            End If
+        Catch ex As Exception
+            AppendAlert("Persist EOD IV failed: " & ex.Message, "ERROR")
+        End Try
     End Sub
 
 End Class

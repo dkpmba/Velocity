@@ -233,6 +233,10 @@ Module OrderStateStore
 
         Upsert(r)
         PersistOrderRowSafe(r)
+        Try
+            TradeLifecycleManager.OnOrderSnapshot(r)
+        Catch : End Try
+
 
     End Sub
 
@@ -248,6 +252,8 @@ Module OrderStateStore
                              clientId As Integer,
                              whyHeld As String,
                              mktCapPrice As Double)
+
+        Dim snap As OrderRow = Nothing   ' declare outside the lock
 
         SyncLock _sync
             Dim r As OrderRow = Nothing
@@ -277,9 +283,17 @@ Module OrderStateStore
             r.Qty = Math.Max(r.TotalQty, r.FilledQty + r.LeavesQty)
             r.Price = r.LmtPrice
             r.Time = r.LastUpdateUtc
+
+            ' at the end of the SyncLock block, capture a shallow copy:
+            snap = New OrderRow With {.OrderId = r.OrderId, .Status = r.Status, .TradeId = r.TradeId}
         End SyncLock
         Dim r2 As OrderRow = Nothing
         If TryGet(orderId, r2) Then PersistOrderRowSafe(r2)
+
+        ' (outside SyncLock)
+        Try
+            TradeLifecycleManager.OnOrderSnapshot(snap)
+        Catch : End Try
 
     End Sub
 
@@ -341,6 +355,12 @@ Module OrderStateStore
                 Catch ex As Exception
                     Debug.WriteLine("TradePnLManager.AddRealized error: " & ex.Message)
                 End Try
+            End If
+
+            If r.TradeId.HasValue AndAlso r.TradeId.Value > 0 Then
+                Try
+                    TradeLifecycleManager.OnExec(r.TradeId.Value, r.Side, shares)
+                Catch : End Try
             End If
 
         End SyncLock

@@ -35,6 +35,8 @@ Namespace Velocity.Core
 
         ' Sets absolute RGL value
         Sub UpdateRgl(tid As Integer, newRgl As Decimal)
+        Sub CloseTrade(tid As Integer, finalRgl As Decimal)
+
     End Interface
 
     Public Interface IOrderRepository
@@ -60,6 +62,10 @@ Namespace Velocity.Core
     Public Interface ISettingsRepository
         Function GetValue(key As String) As String
         Sub SetValue(key As String, json As String)
+    End Interface
+
+    Public Interface IOptionIvRepository
+        Sub UpsertEod(conId As Integer, iv As Decimal, asOfUtc As Date)
     End Interface
 
 End Namespace

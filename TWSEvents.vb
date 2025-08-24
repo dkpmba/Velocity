@@ -55,6 +55,11 @@ Public Module TWSEvents
                                          delta As Double, optPrice As Double, pvDividend As Double,
                                          gamma As Double, vega As Double, theta As Double, undPrice As Double)
 
+        Try
+            EodIvCapture.OnTickOptionComputation(tickerId, impliedVol)
+        Catch
+        End Try
+
     End Sub
 
 
